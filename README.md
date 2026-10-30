@@ -12,7 +12,7 @@
 >
 > 📋 每个版本改了什么见 **[CHANGELOG.md](CHANGELOG.md)**；本次完整说明见 **[docs/releases/v0.2.1-r1.md](docs/releases/v0.2.1-r1.md)**；按天的开发流水见 **[DEVLOG.md](DEVLOG.md)**。
 >
-> 🚚 **换一台机器部署**（带人格 / 记忆 / 日记 / 收藏表情一起搬）见 **[DEPLOY.md](DEPLOY.md)**：克隆后跑一次 `pwsh -File launcher\install.ps1`，再按里面的手动步骤开 SnowLuma。
+> 🚚 **换一台机器部署**（带人格 / 记忆 / 日记 / 收藏表情一起搬）见 **[DEPLOY.md](DEPLOY.md)**：克隆后跑一次 `pwsh -File launcher\install.ps1`，再双击 `配置向导.bat` 填自己的 QQ 号与白名单，然后按里面的手动步骤开 SnowLuma。
 
 把 QQ 消息接入 DSH agent：QQ 好友/群发来的消息会变成 DSH 会话里的用户消息，agent 的回复（含提问、工具审批）会发回 QQ。
 
@@ -127,6 +127,10 @@ npm install        # 安装依赖（postinstall 会自动修补 @snowluma/sdk �
 
 > Windows CMD 用户请用：`copy config.example.json config.json`
 
+> 💡 **不想手改 JSON 就双击 `配置向导.bat`**：它会起一个只监听 `127.0.0.1:3220` 的本地页面，
+> 让你填管理员 QQ、机器人自己的 QQ、私聊/群白名单、人格名，存的时候自动从 `config.template.json`
+> 生成 `config.json`（已存在则保留其余键），顺手建一张空白人格卡。下面的表格是它写进去的字段说明。
+
 > ⚠️ 真实 `config.json` 与 `state/` 不会进入公开仓库，仓库只提供脱敏的 `config.example.json` 模板。
 
 | 字段 | 说明 |
@@ -145,6 +149,7 @@ npm install        # 安装依赖（postinstall 会自动修补 @snowluma/sdk �
 | `socialV2.agentPreset` | `reserved2` 模式使用的 DSH agent preset，默认 `qq-chat-v2` |
 | `workspaceTitle` | QQ 会话在 DSH 界面中的归组名称，默认「QQ 聊天」 |
 | `allow.private` / `allow.groups` | 白名单（QQ 号/群号数组）；留空且 `allowAllWhenEmpty: true` 时放行全部 |
+| `selfQQ` | 机器人自己的 QQ 号（**顶层键**）。不填时记忆归档分不出她自己发的消息 |
 | `deny.*` | 黑名单，优先于白名单 |
 | `ackMessage` | 消息投递后的立即回复，空字符串关闭 |
 | `sendDelayMs` | QQ 连续发送间隔，防止触发频率限制 |
@@ -271,9 +276,12 @@ qq-bridge/
   config.template.json  # 换机器时 install.ps1 用它生成 config.json
   config.example.json   # 配置模板（脱敏占位符；真实 config.json 不入库）
   README.md / README.en.md / RULES.md / DEPLOY.md / LICENSE   # 根目录只留这几个文档，其余全在 docs/
+  配置向导.bat          # 双击开网页向导：填 QQ 号 / 白名单 / 人格名 / 路径（端口 3220）
   一键启动.bat          # 双击启动（自动找 launcher\launch-all.ps1）
   launcher/
     install.ps1         # 换机器后的一次性安装向导（Node/路径/config/seed/npm/DSH）
+    setup-wizard.mjs    # 上面那个「配置向导.bat」背后的本地服务（只听 127.0.0.1）
+    setup-wizard.html   # 它的页面（沿用主控制台的主题变量）
     launch-all.ps1      # 实际启动脚本：paths.json → 环境变量 → 自动探测
     paths.json          # 本机路径（install.ps1 生成，不入库）
   seed/                 # 人格与记忆的种子数据（install.ps1 铺回原位）

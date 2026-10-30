@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>小鲸鱼 · 配置向导</title>
+<!--
+  这个页面只服务 launcher/setup-wizard.mjs，是公开仓库给「刚克隆下来」的人用的第一屏。
+  它不属于主控制台（public/console.html），也不是插件文件 —— 改它不影响桥接。
+
+  设计令牌沿用 public/console.html 那套（--bg/--surface/--text/--accent…），
+  这样从向导跳到控制台不会有割裂感。主题选择存在 localStorage['qq-wizard-theme']。
+
+  令牌由服务端在返回页面时注入到页面底部那个 BOOTSTRAP 占位注释处
+  （见 setup-wizard.mjs）。**不要**把真实令牌写进这个文件：它会被 git
+  跟踪，而且每次启动都换 —— 另外注意占位注释在整个文件里只能出现一次，
+  否则 replace() 换中的是别处，令牌就注入不进去了。
+-->
+<script>
+(function () {
+  var theme;
+  try {
+    var saved = localStorage.getItem('qq-wizard-theme');
+    theme = saved === 'dark' || saved === 'light' ? saved
+      : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  } catch (e) { theme = 'light'; }
+  document.documentElement.dataset.theme = theme;
+})();
+</script>
+<style>
+:root {
+  --bg:#f7f8fb; --surface:#fff; --surface-subtle:#fafbfe; --surface-sunken:#f8f9fc;
+  --card:#fff; --topbar-bg:rgba(255,255,255,.96);
+  --card-border:#e4e9f1; --border:#dfe4ed; --border-input:#dce2ec; --border-subtle:#edf0f5;
+  --text:#202635; --text-strong:#293044; --text-input:#283347;
+  --text-secondary:#5f6a7d; --label:#566174; --muted:#5d6878; --placeholder:#929bad;
+  --accent:#4d6bfe; --accent-hover:#405de5;
+  --accent-soft-bg:#edf1ff; --accent-soft-fg:#405ee6; --accent-border-soft:#c8d4ff;
+  --ok:#168467; --err:#bd3b3b;
+  --warn-bg:#fff8ee; --warn-border:#f3d6ad; --warn-fg:#8e652a;
+  --pill-green-bg:#eaf7f1; --pill-green-fg:#22775f;
+  --pill-red-bg:#fff0ed; --pill-red-fg:#b64a3e;
+  --pill-amber-bg:#fff8ee; --pill-amber-fg:#8e652a;
+  --focus-ring:#a7b5ff;
+  --shadow-card:0 1px 2px #172d5108,0 10px 28px #172d5108;
+  --radius:16px;
+  color-scheme:light;
+}
+[data-theme="dark"] {
+  --bg:#0d1016; --surface:#161b24; --surface-subtle:#191f29; --surface-sunken:#12161e;
+  --card:#161b24; --topbar-bg:rgba(17,22,30,.9);
+  --card-border:#252d3c; --border:#2a3342; --border-input:#2e3748; --border-subtle:#212836;
+  --text:#e7ebf3; --text-strong:#f3f6fb; --text-input:#e3e8f2;
+  --text-secondary:#aeb8ca; --label:#9ca7ba; --muted:#8d98ac; --placeholder:#6d7789;
+  --accent:#6b86ff; --accent-hover:#8098ff;
+  --accent-soft-bg:#1b2440; --accent-soft-fg:#aabaff; --accent-border-soft:#35426e;
+  --ok:#4fd1a5; --err:#ff8f84;
+  --warn-bg:#2a2113; --warn-border:#4d3c1c; --warn-fg:#e9b96c;
+  --pill-green-bg:#12291f; --pill-green-fg:#5fd8ad;
+  --pill-red-bg:#2c1a1a; --pill-red-fg:#ff9a91;
+  --pill-amber-bg:#2a2113; --pill-amber-fg:#e9b96c;
+  --focus-ring:#6b86ff;
+  --shadow-card:0 1px 2px #0006,0 10px 28px #0005;
+  color-scheme:dark;
+}
+* { box-sizing:border-box }
+body {
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
+  font-size:14px; line-height:1.65;
+  padding-bottom:96px;
+}
+button,input,textarea,select { font:inherit }
+:focus-visible { outline:3px solid var(--focus-ring); outline-offset:2px }
+
+/* ── 顶栏 ── */
+.topbar {
+  position:sticky; top:0; z-index:20;
+  background:var(--topbar-bg); backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--border-subtle);
+}
+.topbar-inner {
+  max-width:900px; margin:0 auto; padding:14px 24px;
+  display:flex; align-items:center; gap:14px;
+}
+.brand { font-weight:700; font-size:15px; color:var(--text-strong); letter-spacing:.2px }
+.brand small { display:block; font-weight:400; font-size:12px; color:var(--muted); letter-spacing:0 }
+.spacer { flex:1 }
+.icon-btn {
+  border:1px solid var(--border); background:var(--surface); color:var(--text-secondary);
+  border-radius:10px; padding:6px 11px; font-size:12.5px; cursor:pointer;
+}
+.icon-btn:hover { background:var(--surface-subtle); color:var(--text) }
+
+/* ── 布局 ── */
+.wrap { max-width:900px; margin:0 auto; padding:26px 24px 0 }
+.card {
+  background:var(--card); border:1px solid var(--card-border);
+  border-radius:var(--radius); box-shadow:var(--shadow-card);
+  padding:22px 24px; margin-bottom:18px;
+}
+.card > h2 {
+  margin:0 0 4px; font-size:15.5px; color:var(--text-strong);
+  display:flex; align-items:center; gap:9px;
+}
+.card > h2 .num {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:23px; height:23px; border-radius:50%;
+  background:var(--accent-soft-bg); color:var(--accent-soft-fg);
+  font-size:12px; font-weight:700; flex:none;
+}
+.card > .hint { margin:0 0 18px 32px; color:var(--muted); font-size:12.8px }
+
+/* ── 表单 ── */
+.field { margin-bottom:16px }
+.field:last-child { margin-bottom:0 }
+.field > label { display:block; font-size:13px; font-weight:600; color:var(--label); margin-bottom:5px }
+.field > .sub { font-size:12.2px; color:var(--muted); margin-bottom:7px }
+.req { color:var(--err); margin-left:2px }
+input[type=text], input[type=number], textarea, select {
+  width:100%; padding:9px 12px;
+  border:1px solid var(--border-input); border-radius:10px;
+  background:var(--surface-sunken); color:var(--text-input);
+  transition:border-color .15s, box-shadow .15s;
+}
+input[type=text]:focus, input[type=number]:focus, textarea:focus, select:focus {
+  border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft-bg); outline:none;
+}
+input.bad { border-color:var(--err) }
+textarea { resize:vertical; min-height:64px; font-family:inherit }
+.row { display:flex; gap:14px; flex-wrap:wrap }
+.row > .field { flex:1; min-width:200px }
+.check { display:flex; align-items:flex-start; gap:9px; padding:11px 13px; border-radius:10px; background:var(--surface-subtle); border:1px solid var(--border-subtle) }
+.check input { margin:3px 0 0; flex:none; width:15px; height:15px; accent-color:var(--accent) }
+.check label { font-size:12.8px; color:var(--text-secondary); cursor:pointer }
+
+/* ── 环境表 ── */
+.env { display:grid; gap:9px }
+.env-row {
+  display:flex; align-items:center; gap:11px;
+  padding:9px 13px; border-radius:10px;
+  background:var(--surface-subtle); border:1px solid var(--border-subtle);
+}
+.env-row .name { flex:none; width:150px; font-size:12.8px; color:var(--label); font-weight:600 }
+.env-row .val { flex:1; font-size:12.5px; color:var(--text-secondary); word-break:break-all }
+.pill {
+  flex:none; font-size:11.5px; font-weight:600; padding:2px 9px; border-radius:20px;
+  background:var(--pill-green-bg); color:var(--pill-green-fg); white-space:nowrap;
+}
+.pill.bad { background:var(--pill-red-bg); color:var(--pill-red-fg) }
+.pill.warn { background:var(--pill-amber-bg); color:var(--pill-amber-fg) }
+
+/* ── 底部保存条 ── */
+.savebar {
+  position:fixed; left:0; right:0; bottom:0; z-index:30;
+  background:var(--topbar-bg); backdrop-filter:blur(12px);
+  border-top:1px solid var(--border);
+  padding:13px 24px;
+}
+.savebar-inner { max-width:900px; margin:0 auto; display:flex; align-items:center; gap:14px }
+.savebar .status { flex:1; font-size:12.8px; color:var(--muted); min-height:20px }
+.savebar .status.ok { color:var(--ok) }
+.savebar .status.err { color:var(--err) }
+button.primary {
+  border:none; border-radius:11px; padding:10px 22px;
+  background:var(--accent); color:#fff; font-weight:600; font-size:13.5px;
+  cursor:pointer; transition:background .15s;
+}
+button.primary:hover { background:var(--accent-hover) }
+button.primary:disabled { opacity:.55; cursor:not-allowed }
+button.ghost {
+  border:1px solid var(--border); background:var(--surface); color:var(--text-secondary);
+  border-radius:11px; padding:9px 16px; font-size:13px; cursor:pointer;
+}
+button.ghost:hover { background:var(--surface-subtle); color:var(--text) }
+
+/* ── 提示框 ── */
+.note {
+  border-radius:11px; padding:11px 14px; font-size:12.8px;
+  background:var(--warn-bg); border:1px solid var(--warn-border); color:var(--warn-fg);
+  margin-bottom:16px;
+}
+.note.info { background:var(--accent-soft-bg); border-color:var(--accent-border-soft); color:var(--accent-soft-fg) }
+.note ul { margin:6px 0 0; padding-left:18px }
+.note li { margin:2px 0 }
+.hidden { display:none !important }
+code { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12.2px;
+       background:var(--surface-sunken); padding:1px 5px; border-radius:5px; color:var(--accent-soft-fg) }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      小鲸鱼 · 配置向导
+      <small>填完这一个页面，QQ 桥接就能跑起来了</small>
+    </div>
+    <div class="spacer"></div>
+    <button class="icon-btn" id="themeBtn" type="button">切换主题</button>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- 0. 环境检查 -->
+  <section class="card">
+    <h2><span class="num">0</span>先看看环境</h2>
+    <p class="hint">这些是自动探测的，只读。有 ✗ 的先按提示补上，再往下填 —— 缺 Node 或依赖的话，配置存了也跑不起来。</p>
+    <div class="env" id="envList">
+      <div class="env-row"><span class="name">探测中…</span><span class="val"></span></div>
+    </div>
+  </section>
+
+  <!-- 1. 身份 -->
+  <section class="card">
+    <h2><span class="num">1</span>谁在跟她说话</h2>
+    <p class="hint">管理员是她唯一完全信任的人 —— 只有你能私聊她、用她的全部本地工具、批准她向你申请的事。</p>
+
+    <div class="row">
+      <div class="field">
+        <label for="ownerQQ">管理员 QQ<span class="req">*</span></label>
+        <div class="sub">你自己的 QQ 号，纯数字。</div>
+        <input type="text" id="ownerQQ" inputmode="numeric" placeholder="例如 100000001" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="selfQQ">机器人自己的 QQ</label>
+        <div class="sub">登录 SnowLuma 的那个号。填了才能把她自己发的消息从别人的话里分出来（记忆归档要用）。</div>
+        <input type="text" id="selfQQ" inputmode="numeric" placeholder="例如 100000002" autocomplete="off">
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. 白名单 -->
+  <section class="card">
+    <h2><span class="num">2</span>谁能跟她说话</h2>
+    <p class="hint">不在白名单里的人/群，她一律不理。多个号用逗号或换行隔开。管理员私聊自动算在内，不用重复填。</p>
+
+    <div class="field">
+      <label for="allowPrivate">私聊白名单</label>
+      <div class="sub">允许私聊她的 QQ 号（含管理员）。留空 = 谁都不能私聊。</div>
+      <textarea id="allowPrivate" rows="2" placeholder="100000001, 100000003" autocomplete="off"></textarea>
+    </div>
+
+    <div class="field">
+      <label for="allowGroups">群白名单</label>
+      <div class="sub">允许她说话的群号。留空 = 不进任何群。</div>
+      <textarea id="allowGroups" rows="2" placeholder="100000002" autocomplete="off"></textarea>
+    </div>
+
+    <details style="margin-bottom:16px">
+      <summary style="cursor:pointer; font-size:12.8px; color:var(--muted)">黑名单（可选，优先级高于白名单）</summary>
+      <div class="row" style="margin-top:12px">
+        <div class="field">
+          <label for="denyPrivate">私聊黑名单</label>
+          <input type="text" id="denyPrivate" placeholder="留空即可" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="denyGroups">群黑名单</label>
+          <input type="text" id="denyGroups" placeholder="留空即可" autocomplete="off">
+        </div>
+      </div>
+    </details>
+
+    <div class="check">
+      <input type="checkbox" id="allowAllWhenEmpty">
+      <label for="allowAllWhenEmpty">
+        <b>白名单为空时全部放行</b>（默认关闭）
+        <br><span style="color:var(--muted)">只在两个白名单<b>都</b>为空时生效。开着方便试跑，但等于任何加到机器人好友的人都算数 —— 试完了记得关。</span>
+      </label>
+    </div>
+  </section>
+
+  <!-- 3. 她是谁 -->
+  <section class="card">
+    <h2><span class="num">3</span>她是谁</h2>
+    <p class="hint">人格卡决定她说话的样子。填一个名字，向导会在 <code>roles/</code> 下建一张空白卡（已存在则沿用，不会覆盖你写好的）。</p>
+
+    <div class="field">
+      <label for="roleName">角色名</label>
+      <div class="sub">只用中文、字母、数字、下划线、横线 —— 空格和标点会被桥接过滤掉。例如 <code>小鲸鱼</code>、<code>傲娇助手</code>。</div>
+      <input type="text" id="roleName" placeholder="留空 = 先不启用人格扮演" autocomplete="off">
+    </div>
+
+    <div class="note info" id="roleNote">
+      建好之后打开 <code>roles/&lt;角色名&gt;.md</code> 写人设（身份、说话风格、雷点、示范语气）。
+      人格卡是<b>每条消息都注入</b>的，建议控制在 3000~5000 字符 —— 写太长只会让每条消息都变贵。
+      格式规范见 <code>roles/README.md</code>。
+    </div>
+  </section>
+
+  <!-- 4. 路径与端口 -->
+  <section class="card">
+    <h2><span class="num">4</span>路径与端口</h2>
+    <p class="hint">这些大多能自动探测。没探到才需要手填 —— 写绝对路径，例如 <code>C:/Users/你/SnowLuma</code>。</p>
+
+    <div class="field">
+      <label for="snowlumaHomeDir">SnowLuma 目录</label>
+      <div class="sub">QQ 网关（SnowLuma）解压出来的那个目录，里面要有 <code>index.mjs</code>。本仓库不携带它。</div>
+      <input type="text" id="snowlumaHomeDir" placeholder="C:/Users/你/SnowLuma" autocomplete="off">
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="snowlumaWsUrl">SnowLuma 连接地址</label>
+        <input type="text" id="snowlumaWsUrl" placeholder="ws://127.0.0.1:3001" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="snowlumaAccessToken">SnowLuma access token</label>
+        <div class="sub" id="tokenHint">留空 = 保持原值不变。</div>
+        <input type="text" id="snowlumaAccessToken" placeholder="留空即可" autocomplete="off">
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="dshBaseUrl">DSH 地址</label>
+        <div class="sub">DeepSeek Harness 的本地接口地址。</div>
+        <input type="text" id="dshBaseUrl" placeholder="http://127.0.0.1:19387" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="consolePort">控制台端口</label>
+        <div class="sub">桥接自带的网页控制台（http://127.0.0.1:&lt;端口&gt;），默认 3100。</div>
+        <input type="number" id="consolePort" min="1" max="65535" placeholder="3100">
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="dshModel">模型</label>
+        <div class="sub">留空 = 用模板里的默认值。</div>
+        <input type="text" id="dshModel" placeholder="deepseek-v4.1-flash" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="sessionCwd">工作目录（可选）</label>
+        <div class="sub">留空 = 每个会话在 <code>state/agents/</code> 下各建一个。</div>
+        <input type="text" id="sessionCwd" placeholder="留空即可" autocomplete="off">
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="wardrobeDir">衣柜目录（可选）</label>
+      <div class="sub">换装/自拍要用的衣服素材放这儿。留空 = 这个功能不可用，其余不受影响。</div>
+      <input type="text" id="wardrobeDir" placeholder="留空即可" autocomplete="off">
+    </div>
+
+    <div class="field" style="margin-top:4px">
+      <label for="ackMessage">收到消息时先回一句（可选）</label>
+      <input type="text" id="ackMessage" placeholder="留空 = 用模板默认值" autocomplete="off">
+    </div>
+  </section>
+
+  <!-- 5. 存 -->
+  <section class="card">
+    <h2><span class="num">5</span>存下来</h2>
+    <p class="hint">保存只写 <code>config.json</code> 和人格卡 —— 不会碰你已有的记忆、日记、表情。下次启动桥接就读到了。</p>
+    <div class="note" id="envWarn" style="display:none"></div>
+    <div class="note info">
+      存完可以直接双击 <code>一键启动.bat</code> 把整条链拉起来；
+      想改细节就再开 <code>http://127.0.0.1:&lt;控制台端口&gt;</code> 那个主控制台。
+      想重跑这个向导：再双击一次 <code>配置向导.bat</code> 就行，已有的值会自动填回来。
+    </div>
+  </section>
+
+</div>
+
+<div class="savebar">
+  <div class="savebar-inner">
+    <div class="status" id="status">还没保存</div>
+    <button class="ghost" id="quitBtn" type="button">完成，关闭向导</button>
+    <button class="primary" id="saveBtn" type="button">保存配置</button>
+  </div>
+</div>
+
+<!--WIZARD_BOOTSTRAP-->
+<script>
+(function () {
+  'use strict';
+  var TOKEN = window.__WIZARD_TOKEN__ || '';
+  var el = function (id) { return document.getElementById(id); };
+  var statusEl = el('status');
+
+  function setStatus(text, kind) {
+    statusEl.textContent = text;
+    statusEl.className = 'status' + (kind ? ' ' + kind : '');
+  }
+
+  function api(method, path, body) {
+    var opt = { method: method, headers: { 'x-wizard-token': TOKEN } };
+    if (body !== undefined) {
+      opt.headers['content-type'] = 'application/json';
+      opt.body = JSON.stringify(body);
+    }
+    return fetch(path, opt).then(function (res) {
+      return res.json().then(function (data) {
+        if (!res.ok || data.ok === false) throw new Error(data.error || ('HTTP ' + res.status));
+        return data;
+      });
+    });
+  }
+
+  // ── 主题 ──
+  el('themeBtn').addEventListener('click', function () {
+    var next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem('qq-wizard-theme', next); } catch (e) {}
+  });
+
+  // ── 环境 ──
+  function pill(ok, text, warn) {
+    var cls = ok ? 'pill' : (warn ? 'pill warn' : 'pill bad');
+    return '<span class="' + cls + '">' + text + '</span>';
+  }
+  function row(name, ok, badge, detail, warn) {
+    return '<div class="env-row"><span class="name">' + name + '</span>'
+      + pill(ok, badge, warn)
+      + '<span class="val">' + (detail || '') + '</span></div>';
+  }
+
+  function renderEnv(env) {
+    var rows = [];
+    rows.push(row('Node.js', env.node.ok, env.node.ok ? 'OK' : '太旧',
+      env.node.version + (env.node.ok ? '' : ' —— 需要 v22.13+ 且带全局 WebSocket')));
+    rows.push(row('依赖 node_modules', env.files.nodeModules, env.files.nodeModules ? 'OK' : '缺',
+      env.files.nodeModules ? '' : '在仓库根执行 npm install（或跑 launcher\\install.ps1）'));
+    rows.push(row('config.json', env.files.config, env.files.config ? '已存在' : '将新建',
+      env.files.config ? '保存时会预填现有值' : '保存时从 config.template.json 生成'));
+    rows.push(row('SnowLuma', env.external.snowlumaOk, env.external.snowlumaOk ? 'OK' : '未找到', 
+      env.external.snowlumaOk ? env.external.snowlumaDir
+        : (env.external.snowlumaDir ? '目录里没有 index.mjs：' + env.external.snowlumaDir
+           : '需要自己下载解压，见 DEPLOY.md'), !env.external.snowlumaOk));
+    rows.push(row('DSH', env.external.dshOk, env.external.dshOk ? '在线' : '未连上',
+      env.external.dshBase + '（' + env.external.dshDetail + '）', !env.external.dshOk));
+    rows.push(row('人格卡', env.files.roleCards.length > 0,
+      env.files.roleCards.length > 0 ? env.files.roleCards.length + ' 张' : '还没有',
+      env.files.roleCards.length > 0 ? env.files.roleCards.join('、') : '第 3 步可以顺手建一张',
+      env.files.roleCards.length === 0));
+    el('envList').innerHTML = rows.join('');
+
+    var warns = [];
+    if (!env.node.ok) warns.push('Node.js 不满足要求，桥接起不来 —— 先装 v22.13 或更新版本。');
+    if (!env.files.nodeModules) warns.push('还没装依赖，保存配置后请在仓库根跑一次 <code>npm install</code>。');
+    if (!env.external.snowlumaOk) warns.push('没找到 SnowLuma，QQ 网关起不来。下载后解压到任意目录，把路径填在第 4 步。');
+    if (!env.external.dshOk) warns.push('连不上 DSH —— 如果你还没启动 DSH，这条可以先忽略。');
+    var box = el('envWarn');
+    if (warns.length) {
+      box.style.display = '';
+      box.innerHTML = '<b>还有几件事没就绪：</b><ul><li>' + warns.join('</li><li>') + '</li></ul>';
+    } else {
+      box.style.display = 'none';
+    }
+  }
+
+  // ── 预填 ──
+  var FIELDS = ['ownerQQ', 'selfQQ', 'allowPrivate', 'allowGroups', 'denyPrivate', 'denyGroups',
+    'ackMessage', 'consolePort', 'sessionCwd', 'snowlumaWsUrl', 'snowlumaHomeDir',
+    'dshBaseUrl', 'dshModel', 'wardrobeDir', 'roleName'];
+
+  function fill(cfg) {
+    el('ownerQQ').value = cfg.ownerQQ == null ? '' : String(cfg.ownerQQ);
+    el('selfQQ').value = cfg.selfQQ == null ? '' : String(cfg.selfQQ);
+    el('allowPrivate').value = cfg.allowPrivate || '';
+    el('allowGroups').value = cfg.allowGroups || '';
+    el('denyPrivate').value = cfg.denyPrivate || '';
+    el('denyGroups').value = cfg.denyGroups || '';
+    el('ackMessage').value = cfg.ackMessage || '';
+    el('consolePort').value = cfg.consolePort || 3100;
+    el('sessionCwd').value = cfg.sessionCwd || '';
+    el('snowlumaWsUrl').value = cfg.snowlumaWsUrl || '';
+    el('snowlumaHomeDir').value = cfg.snowlumaHomeDir || '';
+    el('dshBaseUrl').value = cfg.dshBaseUrl || '';
+    el('dshModel').value = cfg.dshModel || '';
+    el('wardrobeDir').value = cfg.wardrobeDir || '';
+    el('roleName').value = cfg.role || '';
+    el('allowAllWhenEmpty').checked = cfg.allowAllWhenEmpty === true;
+    if (cfg.hasSnowlumaToken) {
+      el('tokenHint').textContent = '已配置过（不会显示明文）。留空 = 保持不变。';
+    }
+  }
+
+  // ── 保存 ──
+  function collect() {
+    var body = {};
+    FIELDS.forEach(function (id) { body[id] = el(id).value; });
+    body.allowAllWhenEmpty = el('allowAllWhenEmpty').checked;
+    body.snowlumaAccessToken = el('snowlumaAccessToken').value;
+    return body;
+  }
+
+  el('saveBtn').addEventListener('click', function () {
+    var btn = el('saveBtn');
+    btn.disabled = true;
+    setStatus('正在保存…');
+    api('POST', '/api/save', collect()).then(function (data) {
+      var parts = ['已保存到 ' + data.saved];
+      if (data.role) parts.push((data.role.created ? '新建了人格卡「' : '已启用人格「') + data.role.name + '」');
+      setStatus(parts.join('；'), 'ok');
+      if (data.warnings && data.warnings.length) {
+        var box = el('envWarn');
+        box.style.display = '';
+        box.innerHTML = '<b>存是存下了，但这几处要注意：</b><ul><li>'
+          + data.warnings.join('</li><li>') + '</li></ul>';
+        if (window.scrollTo) window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      }
+    }).catch(function (error) {
+      setStatus('保存失败：' + error.message, 'err');
+      // 校验类错误通常指向某个输入框，标红让人一眼看到改哪儿。
+      var m = /^(管理员 QQ|机器人自己的 QQ|私聊白名单|群白名单|私聊黑名单|群黑名单)/.exec(error.message);
+      ['ownerQQ', 'selfQQ', 'allowPrivate', 'allowGroups', 'denyPrivate', 'denyGroups', 'roleName']
+        .forEach(function (id) { el(id).classList.remove('bad'); });
+      if (m) {
+        var map = {
+          '管理员 QQ': 'ownerQQ', '机器人自己的 QQ': 'selfQQ',
+          '私聊白名单': 'allowPrivate', '群白名单': 'allowGroups',
+          '私聊黑名单': 'denyPrivate', '群黑名单': 'denyGroups'
+        };
+        var target = map[m[1]];
+        if (target) { el(target).classList.add('bad'); el(target).focus(); }
+      } else if (/角色名/.test(error.message)) {
+        el('roleName').classList.add('bad'); el('roleName').focus();
+      }
+    }).then(function () {
+      btn.disabled = false;
+    });
+  });
+
+  el('quitBtn').addEventListener('click', function () {
+    api('POST', '/api/quit', {}).then(function (data) {
+      document.body.innerHTML = '<div class="wrap"><div class="card" style="text-align:center; padding:60px 24px">'
+        + '<h2 style="justify-content:center; display:block">向导已关闭</h2>'
+        + '<p style="color:var(--muted)">' + (data.message || '') + '</p>'
+        + '<p style="color:var(--muted); font-size:12.5px">关掉这个页面就好。要再配置一次，重新双击 <code>配置向导.bat</code>。</p>'
+        + '</div></div>';
+    }).catch(function (error) {
+      setStatus('关闭失败：' + error.message, 'err');
+    });
+  });
+
+  // ── 启动 ──
+  setStatus('正在读取当前配置…');
+  Promise.all([
+    api('GET', '/api/env').then(function (d) { renderEnv(d.env); }).catch(function (e) {
+      el('envList').innerHTML = '<div class="env-row"><span class="name">探测失败</span>'
+        + '<span class="pill bad">错误</span><span class="val">' + e.message + '</span></div>';
+    }),
+    api('GET', '/api/config').then(function (d) { fill(d.config); }).catch(function (e) {
+      setStatus('读不到现有配置：' + e.message, 'err');
+    })
+  ]).then(function () {
+    setStatus('填完点右边保存');
+  });
+})();
+</script>
+</body>
+</html>

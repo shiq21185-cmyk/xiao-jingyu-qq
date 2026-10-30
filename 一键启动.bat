@@ -10,8 +10,9 @@ rem ======================================================================
 setlocal
 cd /d "%~dp0"
 
-rem 窗口标题（同 start.bat：否则 Windows Terminal 显示前台进程名）
-title 小鲸鱼 · 一键启动
+rem Window title (same reason as start.bat: otherwise Windows Terminal shows the
+rem child process name).
+title Xiao Jingyu - Launch All
 
 set "PS=powershell"
 where pwsh >nul 2>nul && set "PS=pwsh"

@@ -32,8 +32,16 @@ const launchers = [
   voiceToolPath('发语音.cmd'),
 ];
 
+// 仓内的 .bat 单独扫：以前只查了仓库外那三个 .cmd，结果 `配置向导.bat` 写成裸 LF
+// 一直没人发现（cmd 解析多行 if 块时会出错，且只在真双击时暴露）。这里按扩展名
+// 全量收集，新加启动器自动纳入，不用再回来改这份清单。
+const IN_REPO_BAT = fs.readdirSync(ROOT)
+  .filter((f) => /\.(bat|cmd)$/i.test(f))
+  .sort()
+  .map((f) => path.join(ROOT, f));
+
 console.log('## 启动器文件编码（乱码根因）');
-for (const f of launchers) {
+for (const f of [...launchers, ...IN_REPO_BAT]) {
   const label = path.basename(f);
   if (!fs.existsSync(f)) {
     const kind = launcherKind(f);

@@ -2,31 +2,50 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 
-rem 专项控制台 —— 独立进程，关掉这个窗口即停。
-rem 它不影响小鲸鱼在 QQ 里的任何行为；开着只是为了让你能改这几项设置。
+rem ======================================================================
+rem  Extra console (tools/extra-console) -- port 3101, started HIDDEN.
+rem
+rem  ENCODING NOTE: keep this file ASCII-only, same rule as start.bat.
+rem  cmd.exe parses .bat files with the ANSI code page (GBK here) and
+rem  `chcp 65001` does NOT change how the rest of the file is read.
+rem  This file used to hold UTF-8 Chinese, an emoji and box-drawing chars;
+rem  cmd read them as GBK, sliced them into fake commands and printed
+rem  several lines of "not recognized as an internal or external command".
+rem
+rem  HOW IT STARTS: launcher\run-hidden.vbs -> wscript Run(..., 0, False).
+rem  No window, no taskbar entry, and this window closes right away, so
+rem  there is nothing left to keep open. Same path the one-click launcher
+rem  uses, so both ways behave identically.
+rem ======================================================================
 
-echo.
-echo  🐋 小鲸鱼 · 专项控制台
-echo  ────────────────────────────────────────
-echo   地址：http://127.0.0.1:3101/
-echo.
-echo   说明：
-echo     · 需要先启动 QQ 桥接（本控制台要读它的配置和会话）
-echo     · 改设置需要控制台令牌，页面第一次会让你填
-echo     · 令牌在 qq-bridge-deploy\state\console-token
-echo     · 关掉这个窗口 = 停止本控制台，不影响机器人
-echo.
-
-where node >nul 2>nul
-if errorlevel 1 (
-    echo  [错误] 找不到 node.exe，请先安装 Node.js 或确认它在 PATH 里。
+if not exist "%~dp0server.mjs" (
+    echo  [X] server.mjs not found next to this .bat.
+    echo      Keep this file inside tools\extra-console.
+    echo.
     pause
     exit /b 1
 )
 
-node "%~dp0server.mjs"
-if errorlevel 1 (
-    echo.
-    echo  控制台退出了，上面是报错信息。
-    pause
+set "NODE_EXE="
+for /f "delims=" %%P in ('where node 2^>nul') do (
+    if not defined NODE_EXE set "NODE_EXE=%%P"
 )
+if not defined NODE_EXE (
+    echo  [X] node.exe not found on PATH.
+    echo      Install Node.js, or make sure it is on PATH.
+    echo.
+    pause
+    exit /b 1
+)
+
+set "HIDER=%~dp0..\..\launcher\run-hidden.vbs"
+if not exist "%HIDER%" (
+    echo  [X] launcher\run-hidden.vbs not found.
+    echo.
+    pause
+    exit /b 1
+)
+
+echo  Starting extra console (hidden) on http://127.0.0.1:3101/ ...
+start "" wscript.exe "%HIDER%" "%~dp0." "%NODE_EXE%" "%~dp0server.mjs"
+exit /b 0

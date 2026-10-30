@@ -126,6 +126,22 @@ pwsh -File launcher\install.ps1
 
 > ⚠️ 装完 **必须重启 DSH**，preset 与 MCP 才会生效。
 
+#### 第 2.5 步：填你自己的东西（双击就行）
+
+`install.ps1` 只把目录和路径摆好，**QQ 号、白名单、人格名这些它不知道，也猜不出来**。双击根目录的 **`配置向导.bat`**：
+
+1. 一个隐藏进程起来（`launcher\setup-wizard.mjs`，只监听 `127.0.0.1:3220`），浏览器自动弹开配置页
+2. 页面上按顺序填：管理员 QQ（必填）→ 机器人自己的 QQ → 私聊/群白名单 → 人格名 → 路径与端口
+3. 点「保存配置」，写回 `config.json`，顺手在 `roles\` 下建一张空白人格卡（已存在则不动）
+4. 点「完成，关闭向导」把后台进程停掉，再去双击 `一键启动.bat`
+
+页面顶部会显示环境体检（Node 版本 / `node_modules` / SnowLuma / DSH 连通性），有 ✗ 的先按提示补，再往下填。
+
+- 想改端口：`set SETUP_WIZARD_PORT=3221` 后再双击（默认 3220；**3210 已被 `tools/call` 的语音侧车占用**）
+- 向导**不会**碰你已有的记忆、日记、表情、人格卡内容，只写 `config.json` 和 `state/current-role.json`
+- 令牌每次启动都随机生成、不落盘，页面刷新就得重新打开一次
+
+
 ### 第 3 步：装 SnowLuma（本仓库不携带）
 
 SnowLuma 的 EULA §5.4 明确禁止再分发 / 并入第三方安装包 / 用自动化脚本部署，所以仓库里没有它的任何二进制。请自己从官方渠道下载发行包：
@@ -151,10 +167,11 @@ node scripts\get-snowluma.mjs --url https://github.com/SnowLuma/SnowLuma/release
 1. **启动 SnowLuma**，用它的 WebUI（默认 `http://127.0.0.1:5099`，初始密码在数据库里，未改密时会重新生成）登录并接受 EULA
 2. **登录机器人小号**（不是你的大号）
 3. **打开 OneBot**：HTTP 端口 3000、WS 端口 3001，把 access token 记下来
-4. **填 `config.json`**：
+4. **填 `config.json`**（用 `配置向导.bat` 就有了，下面是它写进去的字段）：
    | 字段 | 填什么 |
    | --- | --- |
    | `ownerQQ` | 你自己的 QQ 号（只有它私聊时能用完整本地工具） |
+   | `selfQQ` | 机器人自己的 QQ 号（顶层键，**不是** `socialV2.selfQQ`；不填的话记忆归档分不出她自己发的消息） |
    | `allow.private` | 允许私聊的 QQ 号数组（通常就 ownerQQ） |
    | `allow.groups` | 允许机器人说话的群号数组 |
    | `snowluma.accessToken` | 第 3 步记下的 token（留空也能跑，桥接会自发现） |

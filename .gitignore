@@ -151,3 +151,5 @@ tools/asr/*.mp3
 /seed/state/current-role.json
 /seed/state/stickers.json
 /data/日记/
+# 测试夹具造出来的假人格卡（scripts/_fixture.mjs 每次跑测试都会写一份）
+/roles/示例.md
