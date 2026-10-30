@@ -1,0 +1,25 @@
+# 语音工具（ASR / TTS）的 Python 依赖
+#
+# 版本全部钉死 —— 这套组合在本机实测可用（Python 3.12 / Windows / CPU + 可选 CUDA）。
+# 升级任何一个都要重跑 tools/asr/selftest.py 确认还能出声、还能转写。
+#
+#   ASR：faster-whisper（CTranslate2 后端）+ av 解码音频
+#   TTS：edge-tts（微软在线语音）；SAPI 走 pywin32，不需要额外包
+#   繁→简：opencc（纯 Python 的 opencc-python-reimplemented，导入名是 opencc）
+
+faster-whisper==1.2.1
+ctranslate2==4.8.3
+tokenizers==0.23.3
+huggingface_hub==2.2.0
+hf-xet==1.7.0
+av==13.1.0
+onnxruntime==1.31.0
+numpy==2.5.4
+edge-tts==7.3.1
+pywin32==312
+certifi==2026.7.22
+httpx2==2.13.1
+httpcore2==2.13.1
+
+# 繁 → 简：whisper 对普通话常吐繁体，结果过一次 t2s 词表（<1ms，不碰解码）。
+opencc-python-reimplemented==0.1.7

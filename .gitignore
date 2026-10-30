@@ -1,0 +1,153 @@
+# Dependencies
+node_modules/
+.npm-cache/
+
+# Runtime state and local config (never publish)
+state/
+config.json
+*.log
+*.bak
+*.bak-*
+
+# 运行时的日记目录。日记本身由 seed/data/日记/ 带着走（install.ps1 铺回去），
+# 真实目录不跟踪 —— 否则每天新写的日记都要跟仓库对账，换机器时还会和种子副本打架。
+/data/
+
+# ── 但这两个要进仓库 ────────────────────────────────────────────────
+# seed/ 是「人格与记忆」的模板：install.ps1 会把 seed/ 下的文件铺到对应位置。
+# 它里面就含 state/… 的路径，所以必须显式豁免，否则换机器后人格/记忆/表情全丢。
+!/seed/
+!/seed/**
+# 本机路径配置由 launcher\install.ps1 生成，每台机器不同
+/launcher/paths.json
+
+# Local development / planning / research docs (not part of public project)
+/PROJECT_GUIDE.md
+/ARCH_REVIEW.md
+/DSH_QQ_TOOLS_PLAN.md
+/GEN2_SIMULATION_PLAN.md
+/SOCIAL_MODE_PLAN.md
+/RESEARCH_QQ_MESSAGE_DND.md
+/RESEARCH_SNOWLUMA_EMOJI_STICKER.md
+/SnowLuma功能调研.md
+/真人语感策略.md
+# 花费实测档案：含个人用量数据，且未被任何公开文档引用 —— 默认不发布。
+# （如需公开，删掉这一行并挪到 docs/ 后从 README 链接，避免成为孤儿文件。）
+/TOKEN_COST.md
+
+# 本地模型选型 / 硬件配置调研（内部笔记，无任何公开文档引用）
+/LOCAL_MODEL_SIZING.md
+
+# 大体积演示视频（10.93 MB）：改由 Release 附件托管，README 有链接。
+# 注意：移除只影响此后提交、--depth 1 克隆与 Release 的 Source zip；
+# 历史中的旧 blob 仍在，完整 clone 的体积要等历史重写后才会下降。
+/assets/project-intro.mp4
+
+# Local one-off dev/debug/patch scripts
+# (machine-specific paths/IDs, or bound to artifacts of a single probe run under state/)
+/scripts/cleanup-probe-sessions.mjs
+/scripts/cleanup-probe-workspaces.mjs
+/scripts/cleanup-test-sessions.mjs
+/scripts/debug-whitelist.mjs
+/scripts/diag-archive.mjs
+/scripts/fix-probe-workspace-title.mjs
+/scripts/patch-qq-chat-v2-collect-memory.mjs
+/scripts/patch-qq-chat-v2-presleep.mjs
+/scripts/patch-qq-chat-v2-stickers.mjs
+/scripts/patch-web-mcp-timeout.mjs
+# 衣柜裁切：硬编码本机绝对路径（`C:/Users/.../小鲸鱼皮肤`）的一次性脚本。
+# 裁好的成品已经在 seed/wardrobe/ 里（换机器由 install.ps1 铺回去），
+# 这个脚本只对**原图**有意义，而原图 13MB 不进仓库。
+/scripts/crop-outfits.cjs
+
+# 开发时的临时脚本沙盒（探针、压测、一次性重排、上游 clone 等）。
+# 它们随手写、随时删，绑本机路径或一次性状态，没有复现价值 —— 进仓库只会变成噪音。
+/_tmp/
+
+
+# 本机专用的隐私扫描规则（含真实 QQ 号/路径，不入库）
+/scripts/privacy-rules.json
+
+# 一次性回退脚本：依赖 state\backups\ 下那份「改动前」的备份，换机器后备份不存在，
+# 脚本必然是死的。留在仓库里只会让人以为还能用。
+/rollback-opt.ps1
+/回退降本改动.bat
+
+# ── 内部文档保护（修复：忽略规则仍指向旧的根目录路径）──────────────────────
+# 上面那批 `/XXX.md` 规则是按**仓库根目录**写的，但这些文档后来整体挪进了 docs/，
+# 旧规则再也匹配不上 —— 于是"原始开发文档不进公开仓库"这条约定静默失效，privacy-scan
+# 在 docs/ 里扫出多份含本机真实路径（含本机用户名与工作盘路径）的文件。这里按新路径补回。
+# 判断依据：① 原 .gitignore 已列出的同义文件；② privacy-scan 实测命中真实路径的文件；
+# ③ 安全审计/发布计划这类"写了怎么绕过"的内部文档。
+docs/audits/
+docs/design/
+docs/legacy/
+docs/research/
+docs/qq-bridge-PUBLISH_PLAN.md
+docs/qq-bridge-SECURITY_AUDIT.md
+docs/guides/PROJECT_GUIDE.md
+docs/guides/VOICE.md
+
+# 语音库（用户个人音频素材，config.json 的 socialV2.voice.dir 指向此处）
+audio/
+
+# ── ASR / TTS 的本地环境与大模型权重（本机专属，不含源码）──────────────────
+# tools/asr/*.py 是代码，要进仓库；这三个是「装出来的东西」，合计约 780 MB，
+# 换机器由 tools/asr/install-asr.ps1 现场装（见 DEPLOY.md 第一节）。
+tools/asr/.venv/
+tools/asr/models/
+tools/asr/__pycache__/
+**/__pycache__/
+
+# ── 群图库原图（QQ 私聊/群图片缓存）────────────────────────────────────────
+# 图片本体是别人发来的、带真实 QQ 号与腾讯直链 rkey 的原图，属于个人数据，不进仓库。
+# 图库的「记忆部分」（备注/标签/来源）走 seed/data/media/index.json 带过去。
+/media/
+
+# ── 她替主人下载下来的文件（qq_send_file 的落盘目录）────────────────────────
+# 里面是**下载来的** PDF / 安装包 / 压缩包之类：随时能再下一次，还可能带授权文件，
+# 属于运行产物 —— 和 media/ 同理，不进仓库。
+#
+# 2026-10-27 起默认落盘目录挪到仓库外面了（`../小鲸鱼下载/`，跟 media/ 并列），
+# 这条只兜住旧版本留下的 downloads/ 和老配置。
+/downloads/
+
+# 改动前留的一次性回退副本（含本机绝对路径与旧 config.json 里的 token）
+/_backup-diary-181531/
+/_backup-voice-173850/
+/_backup/
+/_backup-*/
+
+# ── 通话功能（tools/call/）的运行产物：装出来的环境、日志、录音、测试音频 ──────
+# tools/call/*.py 与 *.ps1 是代码，要进仓库；下面这些是本机跑出来的东西。
+tools/host/.venv/
+tools/call/logs/
+tools/call/recordings/
+tools/call/*.wav
+tools/call/*.mp3
+# 第三方虚拟声卡安装包（VB-CABLE，~4 MB 二进制驱动）：不进公开仓库，
+# 换机器自己去 https://vb-audio.com/Cable/ 下（理由同 tools/asr/models）。
+tools/call/drivers/
+
+# ── 测试时拖进来的音频素材（tools/asr 下的临时 wav/mp3）────────────────────
+tools/asr/*.wav
+tools/asr/*.mp3
+
+# ── 排查 Windows 音频设备时导出的一次性配置转储（根目录四个，本机专属）──────
+/*_config_content.json
+/config_info.json
+
+# ══════════════════════════════════════════════════════════════════════════
+# 公开仓库的私人内容闸门
+# ──────────────────────────────────────────────────────────────────────────
+# 上游（fork 前的私有部署）会把「人格 + 记忆 + 日记 + 衣柜」一起带进 seed/，
+# 方便换机器时整套搬走。本仓库是**公开**的，那些是真实的人和真实的事，
+# 一律不进库。公开版只带代码 + 通用文档；装好之后你自己养自己的。
+#
+# 想恢复「整套搬家」的行为，删掉这一段即可 —— 但那样推上去就是公开的。
+/seed/data/
+/seed/wardrobe/
+/seed/state/daily-memory.json
+/seed/state/current-role.json
+/seed/state/stickers.json
+/data/日记/

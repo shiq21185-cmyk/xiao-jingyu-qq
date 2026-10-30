@@ -1,0 +1,1647 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小鲸鱼 · 专项控制台</title>
+<!--
+  ⚠️ 这个文件属于「专项控制台」，与 public/console.html 完全无关。
+  改它不会碰到主控制台；主控制台更新也不会碰它。
+  它不是插件文件，也没有任何上游对应物 —— 它只服务本机这几个定制功能。
+-->
+<style>
+:root {
+  /* ── 基础面（照抄 public/console.html 的令牌）── */
+  --bg:#f7f8fb;
+  --surface:#fff;
+  --surface-subtle:#fafbfe;
+  --surface-sunken:#f8f9fc;
+  --surface-hover:#f5f6fa;
+  --surface-chip:#f6f8fc;
+  --surface-chip-strong:#e9edf5;
+  --card:#fff;
+  --topbar-bg:rgba(255,255,255,.96);
+  /* ── 边框 ── */
+  --card-border:#e4e9f1;
+  --border:#dfe4ed;
+  --border-input:#dce2ec;
+  --border-strong:#d1d8e5;
+  --border-subtle:#edf0f5;
+  /* ── 文字 ── */
+  --text:#202635;
+  --text-strong:#293044;
+  --text-input:#283347;
+  --text-secondary:#5f6a7d;
+  --muted:#5d6878;
+  --muted-soft:#828da1;
+  --placeholder:#929bad;
+  --code-fg:#596b92;
+  /* ── 品牌强调 ── */
+  --accent:#4d6bfe;
+  --accent-hover:#405de5;
+  --accent-soft-bg:#edf1ff;
+  --accent-soft-fg:#405ee6;
+  --accent-border-soft:#c8d4ff;
+  --focus-ring:#a7b5ff;
+  /* ── 语义状态 ── */
+  --err:#bd3b3b;
+  --ok:#168467;
+  --danger:#fff5f4;
+  --danger-border:#f1d4d1;
+  --warn-bg:#fff8ee;
+  --warn-border:#f3d6ad;
+  --warn-fg:#8e652a;
+  --pill-blue-bg:#edf1ff; --pill-blue-fg:#435de0;
+  --pill-green-bg:#eaf7f1; --pill-green-fg:#22775f;
+  --pill-red-bg:#fff0ed; --pill-red-fg:#b64a3e;
+  --toast-bg:#27334a; --toast-fg:#fff;
+  --shadow-card:0 1px 2px #172d5108,0 10px 28px #172d5108;
+  --shadow-md:0 4px 15px #293b7410;
+  --shadow-pop:0 15px 45px #26366b1c;
+  --decor-a:#4d6bfe14; --decor-b:#7c5cff0f;
+  --radius:16px;
+  color-scheme:light;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 90px; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+/* 背景点缀：与 console.html 同一套（右上角两团淡色光晕） */
+body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(760px 420px at 92% -8%, var(--decor-a), transparent 62%),
+    radial-gradient(620px 380px at 4% 4%, var(--decor-b), transparent 60%);
+}
+
+/* ── 侧边栏 ── */
+.sidebar {
+  position: fixed; inset: 0 auto 0 0; width: 234px;
+  background: var(--surface); border-right: 1px solid var(--card-border);
+  padding: 32px 18px 20px; display: flex; flex-direction: column;
+  z-index: 20; overflow-y: auto;
+}
+.brand {
+  display: flex; align-items: center; gap: 10px; padding: 0 10px 24px;
+  color: var(--text-strong); font-size: 17px; letter-spacing: -.4px;
+  font-weight: 700; line-height: 1.25;
+}
+/* ⚠️ 品牌名不能再换行：侧边栏固定 234px。21px 字号时"专项控制台"会被折成
+   "专项/控制台"两行（实测）。这里锁死不换行，字号也降到 17px。 */
+.brand > span { white-space: nowrap; }
+.brand small { display: block; color: var(--muted); font-size: 10px; font-weight: 400; letter-spacing: .2px; margin-top: 5px; }
+.nav-group { color: var(--muted-soft); font-size: 10.5px; letter-spacing: .8px; text-transform: uppercase; padding: 16px 12px 7px; font-weight: 600; }
+.nav-item {
+  border: 0; background: transparent; display: flex; align-items: center;
+  gap: 12px; width: 100%; padding: 11px 14px; margin: 3px 0;
+  text-align: left; font-size: 13px; border-radius: 9px;
+  color: var(--text-secondary); cursor: pointer; font-family: inherit;
+  white-space: nowrap; transition: background .15s, color .15s;
+}
+.nav-item:hover { background: var(--surface-hover); }
+.nav-item.active { background: var(--accent-soft-bg); color: var(--accent-soft-fg); font-weight: 600; }
+.nav-icon { width: 18px; text-align: center; font-size: 16px; line-height: 1; font-weight: 400; }
+.nav-badge { margin-left: auto; font-size: 11px; color: var(--muted-soft); font-weight: 500; }
+.nav-item.active .nav-badge { color: var(--accent-soft-fg); }
+
+/* ── 主区 ── */
+.shell { margin-left: 234px; min-width: 0; position: relative; z-index: 1; }
+.topbar {
+  height: 76px; border-bottom: 1px solid var(--card-border);
+  background: var(--topbar-bg); display: flex; align-items: center;
+  justify-content: space-between; padding: 0 40px; gap: 16px;
+  position: sticky; top: 0; z-index: 10; backdrop-filter: blur(8px);
+}
+.crumb { color: var(--muted-soft); font-size: 12px; letter-spacing: .3px; }
+.crumb b { color: var(--text-strong); font-weight: 600; font-size: 13px; }
+.topbar-right { display: flex; align-items: center; gap: 10px; }
+.content { padding: 28px 40px 60px; max-width: 1180px; }
+
+/* 页面切换 */
+[data-page] { display: none; }
+[data-page].active { display: block; animation: fade .18s ease; }
+@keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* ── 卡片 ── */
+.card {
+  background: var(--card); border: 1px solid var(--card-border);
+  border-radius: var(--radius); padding: 22px 24px; margin-bottom: 16px;
+  box-shadow: var(--shadow-card);
+}
+.card > h2 {
+  margin: 0 0 6px; font-size: 16px; font-weight: 600;
+  color: var(--text-strong); letter-spacing: -.2px;
+}
+.card > .desc { color: var(--muted); font-size: 12.5px; margin: 0 0 16px; line-height: 1.65; }
+h3 { font-size: 12.5px; margin: 20px 0 9px; color: var(--accent-soft-fg); font-weight: 600; letter-spacing: .2px; }
+h3:first-of-type { margin-top: 6px; }
+
+/* ── 表单 ── */
+label { display: block; font-size: 12.5px; color: var(--label, var(--muted)); margin-bottom: 5px; }
+input[type=text], input[type=number], input[type=date], input[type=time], select {
+  width: 100%; padding: 8px 11px; border-radius: 9px;
+  background: var(--surface); color: var(--text-input);
+  border: 1px solid var(--border-input); font: inherit; font-size: 13px;
+  transition: border-color .15s, box-shadow .15s;
+}
+input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); }
+::-webkit-input-placeholder { color: var(--placeholder); }
+
+button {
+  padding: 8px 15px; border-radius: 9px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text-secondary);
+  font: inherit; font-size: 13px; cursor: pointer;
+  transition: .15s; white-space: nowrap;
+}
+button:hover:not(:disabled) { border-color: var(--accent-border-soft); color: var(--accent-hover); background: var(--surface-subtle); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary {
+  background: var(--accent); border-color: var(--accent);
+  color: #fff; font-weight: 500;
+}
+button.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); color: #fff; }
+button.danger { border-color: var(--danger-border); background: var(--danger); color: var(--err); }
+button.danger:hover:not(:disabled) { background: var(--danger-hover-bg, #ffebe8); border-color: var(--err); color: var(--err); }
+
+.row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+.row > .field { flex: 1 1 170px; }
+
+/* ── 表格 ── */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border-subtle); vertical-align: middle; }
+th { color: var(--muted-soft); font-weight: 500; font-size: 11.5px; letter-spacing: .3px; text-transform: uppercase; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--surface-subtle); }
+td.mono, .mono { font-family: ui-monospace, Consolas, "Cascadia Mono", monospace; font-size: 12.5px; color: var(--code-fg); }
+
+.badge {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  font-size: 11.5px; border: 1px solid var(--border); color: var(--muted);
+  background: var(--surface-chip); white-space: nowrap;
+}
+.badge.ok { color: var(--pill-green-fg); border-color: #c9e8dc; background: var(--pill-green-bg); }
+.badge.warn { color: var(--warn-fg); border-color: var(--warn-border); background: var(--warn-bg); }
+.badge.bad { color: var(--pill-red-fg); border-color: var(--danger-border); background: var(--pill-red-bg); }
+.badge.info { color: var(--pill-blue-fg); border-color: var(--accent-border-soft); background: var(--pill-blue-bg); }
+
+.empty { color: var(--muted-soft); font-size: 13px; padding: 12px 0; }
+.hint { color: var(--muted-soft); font-size: 12px; margin: 7px 0 0; line-height: 1.6; }
+.hint b { color: var(--text-secondary); font-weight: 600; }
+code.inline {
+  background: var(--surface-chip-strong); padding: 2px 6px; border-radius: 5px;
+  font-size: 12px; font-family: ui-monospace, Consolas, monospace; color: var(--code-fg);
+}
+
+/* ── 状态条 ── */
+.status-line {
+  padding: 11px 14px; border-radius: 10px; background: var(--surface-chip);
+  border: 1px solid var(--border-subtle); font-size: 13px; margin-bottom: 12px;
+  color: var(--text-secondary); line-height: 1.6;
+}
+.status-line b { color: var(--text-strong); }
+
+/* ── 开关 ── */
+.toggles { display: grid; gap: 9px; }
+.toggle {
+  display: flex; align-items: flex-start; gap: 11px; padding: 12px 14px;
+  border: 1px solid var(--border-subtle); border-radius: 11px;
+  background: var(--surface-subtle); cursor: pointer; margin: 0;
+  transition: border-color .15s, background .15s;
+}
+.toggle:hover { border-color: var(--accent-border-soft); background: var(--surface); }
+.toggle input { margin: 3px 0 0; width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; flex: 0 0 auto; }
+.toggle > span { display: block; }
+.toggle > span > b { display: block; font-size: 13px; color: var(--text-strong); font-weight: 600; margin-bottom: 2px; }
+.toggle .meta { display: block; font-size: 12px; color: var(--muted); line-height: 1.55; }
+.toggle .meta b { display: inline; font-weight: 600; color: var(--text-secondary); margin: 0; }
+
+/* ── 工具开关 ── */
+.tool-tabs {
+  display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 12px;
+}
+/* 顶部横向小格子：一行能放好几个，点一个看一组 */
+.tool-tab {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; border-radius: 9px; font-size: 12.5px;
+  border: 1px solid var(--border-subtle); background: var(--surface-subtle);
+  color: var(--text-secondary); cursor: pointer; transition: .15s; white-space: nowrap;
+}
+.tool-tab:hover { border-color: var(--accent-border-soft); color: var(--accent-hover); background: var(--surface); }
+.tool-tab.active {
+  background: var(--accent-soft-bg); border-color: var(--accent-border-soft);
+  color: var(--accent-soft-fg); font-weight: 600;
+}
+.tool-tab .tt-count {
+  font-size: 10.5px; color: var(--muted-soft); font-variant-numeric: tabular-nums;
+}
+.tool-tab.active .tt-count { color: var(--accent-soft-fg); opacity: .7; }
+.tool-tab .tt-sep { color: var(--border-strong); font-size: 10px; }
+.tool-tab .tt-off {
+  font-size: 10.5px; padding: 0 6px; border-radius: 999px;
+  background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--warn-fg);
+}
+.tool-tab.has-off { border-color: var(--warn-border); }
+
+.tool-panel {
+  border: 1px solid var(--border-subtle); border-radius: 11px; overflow: hidden;
+  background: var(--surface);
+}
+.tool-panel > .tp-note {
+  padding: 10px 14px; background: var(--surface-sunken);
+  font-size: 11.5px; color: var(--muted-soft);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.tool-item { display: flex; align-items: flex-start; gap: 11px; padding: 10px 14px; border-top: 1px solid var(--border-subtle); }
+.tool-item:first-of-type { border-top: none; }
+.tool-item:hover { background: var(--surface-subtle); }
+.tool-item input { margin: 3px 0 0; width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; flex: 0 0 auto; }
+.tool-item > .ti-main { flex: 1; min-width: 0; }
+.tool-item .ti-tools { font-size: 12.5px; font-family: ui-monospace, Consolas, monospace; color: var(--text-strong); word-break: break-all; }
+.tool-item .ti-flag { font-size: 11px; color: var(--muted-soft); margin-left: 7px; }
+.tool-item .ti-note { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.55; }
+.tool-item .ti-badges { margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap; }
+.tool-item.off .ti-tools { color: var(--muted-soft); }
+.badge-mini { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted-soft); background: var(--surface-chip); }
+.badge-mini.warn { color: var(--warn-fg); border-color: var(--warn-border); background: var(--warn-bg); }
+.badge-mini.bad { color: var(--pill-red-fg); border-color: var(--danger-border); background: var(--pill-red-bg); }
+.badge-mini.multi { color: var(--pill-blue-fg); border-color: var(--accent-border-soft); background: var(--pill-blue-bg); }
+/* ── 时间轴（保持原逻辑，换配色）── */
+.timeline { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; margin: 12px 0 0; }
+.timeline .seg { height: 26px; border-radius: 4px; background: var(--surface-chip); border: 1px solid var(--border-subtle); min-width: 0; }
+.timeline .seg.meal { background: var(--warn-bg); border-color: var(--warn-border); }
+.timeline .seg.night { background: #eef1fa; border-color: #dfe4f4; }
+.timeline .seg.now { outline: 2px solid var(--accent); outline-offset: 1px; }
+.timeline-wrap { position: relative; }
+  /* 刻度与格子用**同一套 24 列 grid** ⇒ 永远对齐。
+     原先是 left:% 绝对定位：格子是 flex 等分 + 3px gap，百分比会累积
+     gap 误差，越往右偏得越多（实测 16:00 与格子对不上）。 */
+  .axis { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; height: 16px; font-size: 10.5px; color: var(--muted-soft); }
+  /* 每格一个 span，文字靠左 —— 因为它和上面的格子占同一列，左边就是整点位置。
+     不用 translateX 居中：那会溢出到相邻列，反而看不出对齐。 */
+  .axis span { grid-row: 1; white-space: nowrap; overflow: visible; }
+
+/* ── 杂项 ── */
+details { margin-top: 14px; }
+summary { cursor: pointer; color: var(--muted-soft); font-size: 12.5px; padding: 6px 0; }
+summary:hover { color: var(--accent-hover); }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; font-size: 13px; }
+.kv dt { color: var(--muted-soft); }
+.kv dd { margin: 0; color: var(--text-secondary); }
+.tokenbar { display: flex; gap: 9px; align-items: center; }
+.tokenbar input { flex: 1 1 260px; }
+.toast {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+  max-width: min(680px, 92vw); padding: 12px 18px; border-radius: 11px;
+  background: var(--toast-bg); color: var(--toast-fg); font-size: 13px;
+  box-shadow: var(--shadow-pop); opacity: 0; pointer-events: none;
+  transition: opacity .2s, transform .2s; white-space: pre-wrap; z-index: 99;
+  line-height: 1.55;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(-6px); }
+
+/* 窄屏：侧边栏收起成顶部横排 */
+@media (max-width: 860px) {
+  .sidebar { position: static; width: auto; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 14px 16px; border-right: 0; border-bottom: 1px solid var(--card-border); }
+  .brand { padding: 0 12px 0 0; font-size: 17px; }
+  .nav-group { display: none; }
+  .nav-item { width: auto; padding: 8px 12px; margin: 2px; }
+  .nav-badge { display: none; }
+  .shell { margin-left: 0; }
+  .content { padding: 20px 16px 48px; }
+  .topbar { padding: 0 16px; height: 62px; }
+}
+</style>
+</head>
+<body>
+<aside class="sidebar" aria-label="专项控制台导航">
+  <div class="brand"><span>🐋 专项控制台</span><small>主动找人 · 语音 · 闸门 · 约定</small></div>
+    <div class="nav-group">聊天行为</div>
+    <button class="nav-item active" data-nav="proactive"><span class="nav-icon" aria-hidden="true">◈</span>主动找人<span class="nav-badge" data-badge="proactive"></span></button>
+    <button class="nav-item" data-nav="voice"><span class="nav-icon" aria-hidden="true">◉</span>语音<span class="nav-badge" data-badge="voice"></span></button>
+    <button class="nav-item" data-nav="media"><span class="nav-icon" aria-hidden="true">▣</span>媒体上限<span class="nav-badge" data-badge="media"></span></button>
+    <button class="nav-item" data-nav="autonomy"><span class="nav-icon" aria-hidden="true">◷</span>自由时间<span class="nav-badge" data-badge="autonomy"></span></button>
+    <button class="nav-item" data-nav="wait"><span class="nav-icon" aria-hidden="true">⧗</span>等待与超时<span class="nav-badge" data-badge="wait"></span></button>
+    <button class="nav-item" data-nav="tools"><span class="nav-icon" aria-hidden="true">☰</span>工具开关<span class="nav-badge" data-badge="tools"></span></button>
+    <div class="nav-group">权限</div>
+    <button class="nav-item" data-nav="permit"><span class="nav-icon" aria-hidden="true">⊙</span>申请闸门<span class="nav-badge" data-badge="permit"></span></button>
+    <button class="nav-item" data-nav="promise"><span class="nav-icon" aria-hidden="true">◷</span>约好的事<span class="nav-badge" data-badge="promise"></span></button>
+    <div class="nav-group">运维</div>
+    <button class="nav-item" data-nav="debug"><span class="nav-icon" aria-hidden="true">⌘</span>现场调试<span class="nav-badge" data-badge="debug"></span></button>
+</aside>
+
+<div class="shell">
+  <div class="topbar">
+    <div class="crumb">专项控制台&nbsp;/&nbsp;<b data-crumb>主动找人</b></div>
+    <div class="topbar-right">
+      <span class="badge" id="connBadge">未连接</span>
+      <button id="refreshBtn" title="重新读取全部状态">刷新</button>
+    </div>
+  </div>
+  <div class="content">
+      <div class="card" data-page="proactive">
+
+  <h2>① 主动找人</h2>
+  <p class="desc">
+    她多久会"自己想来找你"一次。这些改的是<b>主动机会</b>——不影响你找她（你发消息她照样立刻醒）。
+  </p>
+
+  <div class="row">
+    <div class="field">
+      <label>基础概率 <span style="color:var(--dim)">（掷中才开口）</span></label>
+      <input type="number" id="prob" min="0" max="1" step="0.05">
+    </div>
+    <div class="field">
+      <label>检查间隔下限（分钟）</label>
+      <input type="number" id="intMin" min="1" step="1">
+    </div>
+    <div class="field">
+      <label>检查间隔上限（分钟）</label>
+      <input type="number" id="intMax" min="1" step="1">
+    </div>
+    <div class="field">
+      <label>冷场多久才算"可以找"（分钟）</label>
+      <input type="number" id="idle" min="1" step="1">
+    </div>
+  </div>
+  <div class="row" style="margin-top:12px">
+    <button class="primary" id="saveProactive">保存</button>
+    <button id="resetProactive">恢复推荐值（0.55 / 25~50 分钟 / 20 分钟）</button>
+  </div>
+
+  <h3>一天里的时间系数</h3>
+  <p class="hint">
+    实际概率 = 基础概率 × 时间系数 × 其它修正（刚说过话 ×0.5、一小时发太多 ×0.3）。当前时段会高亮。
+  </p>
+  <div class="timeline" id="timeline"></div>
+  <div class="axis" id="axis"></div>
+  <p class="hint" id="nowFactor">…</p>
+
+  <details>
+    <summary>系数明细（点开）</summary>
+    <div class="kv" style="margin-top:8px">
+      <dt>饭点</dt><dd>×1.45（早/午/晚饭窗口内）</dd>
+      <dt>刚过饭点</dt><dd>×1.2（饭后 1.5 小时内）</dd>
+      <dt>清晨</dt><dd>×1.35（且超过 4 小时没聊）；刚聊过则 ×0.8</dd>
+      <dt>深夜但还聊着</dt><dd>×1.25（90 分钟内有过往来）</dd>
+      <dt>深夜且已冷场</dt><dd>×0.15 —— 不半夜把人叫醒</dd>
+      <dt>周末</dt><dd>×1.1</dd>
+      <dt>有未完成的约定</dt><dd>×1.15</dd>
+    </div>
+    <p class="hint" style="margin-top:10px">
+      每次判定都写进 <code class="inline">state/bridge.log</code>，形如
+      <code class="inline">主动机会判定 … p=0.72（时间系数 饭点时间 ×1.45，…）</code>。
+    </p>
+  </details>
+      </div>
+
+      <div class="card" data-page="voice">
+
+  <h2>② 语音（她开口说话）</h2>
+  <p class="desc">
+    现在是<b>默认语音</b>：她回话会合成成语音条，发不出去才自动转成文字。这里可以一键关掉。
+  </p>
+
+  <div class="status-line" id="voiceStatus">读取中…</div>
+
+  <h3>总开关</h3>
+  <div class="toggles">
+    <label class="toggle">
+      <input type="checkbox" id="voiceEnabled">
+      <span>
+        <b>语音功能</b>
+        <span class="meta">关掉之后她<b>完全不发语音</b>，所有回话都变回文字</span>
+      </span>
+    </label>
+    <label class="toggle">
+      <input type="checkbox" id="ttsEnabled">
+      <span>
+        <b>语音合成</b>
+        <span class="meta">本机把文字念成声音（edge 引擎，要联网）。关掉等于也发不出语音</span>
+      </span>
+    </label>
+    <label class="toggle">
+      <input type="checkbox" id="autoReadback">
+      <span>
+        <b>发送后回读校验</b>
+        <span class="meta">每发一条额外查一次 QQ 确认真的发出去了。更确定，但会慢一点</span>
+      </span>
+    </label>
+  </div>
+
+  <div class="row" style="margin-top:12px">
+    <button class="primary" id="saveVoice">保存语音设置</button>
+    <button id="voiceOn">恢复常驻语音（两个都开）</button>
+    <button id="voiceOff">关掉语音（只发文字）</button>
+  </div>
+
+  <h3>频率上限</h3>
+  <p class="hint">
+    太严会让"常驻语音"一聊天就撞墙退文字。现在是每分钟 12 条、每小时 200 条。
+  </p>
+  <div class="row">
+    <div class="field">
+      <label>每分钟最多</label>
+      <input type="number" id="maxPerMinute" min="0" step="1">
+    </div>
+    <div class="field">
+      <label>每小时最多</label>
+      <input type="number" id="maxPerHour" min="0" step="1">
+    </div>
+  </div>
+
+  <details>
+    <summary>语音是怎么发出来的（点开）</summary>
+    <p class="hint" style="margin-top:8px">
+      她调 <code class="inline">qq_say</code> → 桥接调本机常驻 Python worker → <b>微软 Edge TTS</b>
+      念成 mp3 → 作为 QQ 语音条发出 → 用完删掉临时文件。
+    </p>
+    <p class="hint">
+      念的话会发到微软的语音服务（<code class="inline">edge</code> 引擎要联网）。
+      想完全不出这台电脑就换成 <code class="inline">sapi</code>（Windows 自带，机器味重、中文音色少）。
+    </p>
+    <p class="hint">
+      合成失败、没网、引擎没起时，桥接会<b>当场把同一段文字发出去</b>，所以对方一定收得到。
+      她返回的 <code class="inline">mode</code> 会写明这次走的是 <code class="inline">voice</code> 还是 <code class="inline">text</code>。
+    </p>
+  </details>
+      </div>
+
+      <div class="card" data-page="media">
+
+  <h2>③ 媒体上限（她收得到多大的图）</h2>
+  <p class="desc">
+    群里有人发图、发表情，桥接会<b>先把图片抓下来</b>再交给她看。这里控制「多大的图还值得抓」。
+    超过上限的图会被跳过，她那句就是「（图片总大小超限，已跳过）」—— 也就是<b>看不见这张图</b>。
+  </p>
+
+  <div class="status-line" id="mediaStatus">读取中…</div>
+
+  <h3>三个上限</h3>
+  <div class="row">
+    <div class="field">
+      <label>单条消息总字节上限（MB）</label>
+      <input type="number" id="mediaMaxBytesMB" min="1" max="32" step="1">
+    </div>
+    <div class="field">
+      <label>单张图片像素上限（百万像素）</label>
+      <input type="number" id="mediaMaxPixelsMP" min="1" max="256" step="1">
+    </div>
+    <div class="field">
+      <label>单条消息最多几张</label>
+      <input type="number" id="mediaMaxCount" min="1" max="20" step="1">
+    </div>
+  </div>
+
+  <p class="hint">
+    默认 <b>8MB / 64MP / 5 张</b>。手机直出的原图常超过 4MB，所以默认比旧版（硬编码 4MB）宽了一倍。
+  </p>
+  <p class="hint">
+    <b>硬天花板：32MB / 256MP / 20 张。</b>填得再大也会被钳到这些值 ——
+    放宽上限不是拆掉防护，一句配置不能绕过整层校验。
+  </p>
+
+  <div class="row" style="margin-top:12px">
+    <button class="primary" id="saveMedia">保存媒体上限</button>
+    <button id="mediaReset">恢复默认（8MB / 64MP / 5 张）</button>
+  </div>
+
+  <h3>表情包 CDN 兜底</h3>
+  <p class="hint">
+    市场表情（从表情商店下载的）常常<b>不在网关缓存里、也没有 url</b>，
+    网关给不出地址时桥接会靠 emoji_id 推一个 QQ 表情 CDN 地址去取图。
+    关掉之后那类表情她只能看到一行「[表情#123]」文字。
+  </p>
+  <div class="toggles">
+    <label class="toggle">
+      <input type="checkbox" id="stickerCdnFallback">
+      <span>
+        <b>开启 CDN 兜底</b>
+        <span class="meta">默认开。只在「网关没给 url」时才用；只接受纯十六进制 id，不会拼任意字符串</span>
+      </span>
+    </label>
+  </div>
+  <div class="row" style="margin-top:12px">
+    <button class="primary" id="saveStickerCdn">保存表情设置</button>
+  </div>
+
+  <details>
+    <summary>为什么会有这套上限（点开）</summary>
+    <p class="hint" style="margin-top:8px">
+      图片要<b>解码</b>才能看，而一张 20000×20000 的「图片炸弹」会直接把内存吃光；
+      动图几十 MB 也传不动。所以像素和字节都得有阈值 —— 只是阈值可以调。
+    </p>
+    <p class="hint">
+      三个值都会写进 <code class="inline">config.json</code> 的
+      <code class="inline">socialV2.media</code>，改完<b>下一张图立刻生效</b>（不需要重启）。
+    </p>
+  </details>
+      </div>
+
+      <div class="card" data-page="tools">
+
+  <h2>③ 工具开关（她能用哪些能力）</h2>
+  <p class="desc">
+    从桥接<b>现读</b>，不抄主控制台那份写死的清单 —— 所以新加的工具这里一定看得到。
+    每个开关下面列出了它管着<b>哪几个工具</b>，避免"以为只关了一个、其实关掉一串"。
+  </p>
+
+  <div class="status-line" id="toolsStatus">读取中…</div>
+
+  <div class="row" style="margin-bottom:12px">
+    <button class="primary" id="saveTools">保存开关</button>
+    <button id="toolsReset">撤销改动</button>
+    <span class="hint" id="toolsDirty" style="align-self:center"></span>
+  </div>
+
+  <div id="toolsBox"></div>
+
+  <details>
+    <summary>几个容易误关的地方（点开）</summary>
+    <ul class="hint" style="margin:8px 0 0; padding-left:20px; line-height:1.7">
+      <li><b>speak</b> 同时管 <code class="inline">qq_say</code> 和 <code class="inline">qq_speak</code>；
+        <b>memory</b> 管 4 个记忆工具；<b>sendVoice</b> 管 <code class="inline">qq_send_voice</code> 和
+        <code class="inline">qq_list_voices</code>；<b>promise</b> 管 2 个约定工具。</li>
+      <li>关开关后<b>要重启 DSH</b> 才真正从工具清单里消失；在那之前只是调用时被拒。</li>
+      <li>标「⚠️ 桥接不认识」的开关存不进去 —— 那是桥接的 <code class="inline">toolFlags</code>
+        名单漏登记了它，属于既有 bug，不是你的操作问题。</li>
+    </ul>
+  </details>
+      </div>
+
+      <div class="card" data-page="autonomy">
+
+        <h2>自由时间</h2>
+        <p class="desc">
+          你跟她聊完之后，那段<b>没人说话的时间</b>算不算她自己的。算，她就能在那段时间里做空间写操作（发说说、点赞、评论）。
+          <b>注意：允许不等于必须</b>——那只是"这段时间归她"，不是"该发条说说了"。大部分时候她什么都不做才是对的。
+        </p>
+
+        <div class="row">
+          <div class="field">
+            <label>你沉默多久算"聊完了"（分钟）</label>
+            <input type="number" id="quietGrantMin" min="0.17" max="60" step="0.5">
+            <p class="hint">
+              你发完最后一条、接着这么久没再说话，这段就算她自己的。<br>
+              <b>太短</b>：你还在打字她就拿到自主权（不好）。<b>太长</b>：她基本拿不到（也不好）。<br>
+              范围 10 秒 ~ 60 分钟。默认 <b>2.5 分钟</b>。
+            </p>
+          </div>
+          <div class="field">
+            <label>两次空间写之间至少隔多久（小时）</label>
+            <input type="number" id="qzoneGapHour" min="0" max="168" step="0.5">
+            <p class="hint">
+              防止"每次聊完她都去发说说"。<br>
+              <b>填 0 = 不限制</b>（她想写就写）。默认 <b>4 小时</b>，最长 7 天。<br>
+              ⚠️ 它只管<b>写</b>：看空间、翻说说列表不受限制。
+            </p>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:12px">
+          <button class="primary" id="saveAutonomy">保存</button>
+          <button id="resetAutonomy">恢复默认（2.5 分钟 / 4 小时）</button>
+        </div>
+        <div class="status-line" id="autonomyStatus" style="margin-top:14px">读取中…</div>
+
+        <details>
+          <summary>这两条规矩她自己也看得见（点开）</summary>
+          <div class="hint" style="margin-top:8px">
+            她的提示词里写着：静默期<b>只是允许，不是必须</b>；两次空间写之间要隔一段时间（会被执行期拦住，返回 429）；
+            <span id="autonomyAsSeen"></span>
+            而且<b>读不受限</b>（想看空间随时看）。所以你在这里调的数字，她那边也大致知道该怎么配合。
+          </div>
+        </details>
+
+      </div>
+
+      <div class="card" data-page="wait">
+
+  <h2>等待与超时（她能等多久）</h2>
+  <p class="desc">
+    她「等消息」这件事有预算：等太久白烧时间，等太短又老是空手而归。
+    这里管的是<b>单次等待的上限</b>，以及沉睡前观察要安静多久才算"真的没人说话"。
+  </p>
+
+  <div class="status-line" id="waitStatus">读取中…</div>
+
+  <div class="row">
+    <div class="field">
+      <label>单次等待上限（分钟）</label>
+      <input type="number" id="waitMaxMin" min="0.1" max="10" step="0.5">
+      <p class="hint">
+        <code class="inline">qq_wait_for_messages</code> 一次最多能等多久。默认 <b>10 分钟</b>。<br>
+        ⚠️ <b>超过 5 分钟的等待走的是另一条通道</b>（<code class="inline">node:http</code>）——
+        Node 自带的 fetch 在 305 秒会强制超时（实测），短于此的等待不受影响。
+      </p>
+    </div>
+    <div class="field">
+      <label>默认等待（秒）</label>
+      <input type="number" id="waitDefaultSec" min="1" max="600" step="1">
+      <p class="hint">她没指定时长时用的值。默认 <b>30 秒</b>。</p>
+    </div>
+    <div class="field">
+      <label>沉睡前观察的静默（秒）</label>
+      <input type="number" id="waitQuietSec" min="1" max="120" step="1">
+      <p class="hint">
+        她说"没人说话"之前要安静多久才算数。默认 <b>8 秒</b>。<br>
+        <b>太短</b>：对方还在打字她就以为聊完了。
+      </p>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:12px">
+    <button class="primary" id="saveWait">保存等待设置</button>
+    <button id="resetWait">恢复默认（10 分钟 / 30 秒 / 8 秒）</button>
+  </div>
+
+  <details>
+    <summary>为什么超过 5 分钟要换通道（点开）</summary>
+    <p class="hint" style="margin-top:8px">
+      Node 的全局 <code class="inline">fetch</code> 是 undici，它给每个请求自带
+      <b>300 秒 headersTimeout</b>。实测：一个 320 秒才回头的服务端，全局 fetch 在
+      <b>305 秒</b>就抛 <code class="inline">UND_ERR_HEADERS_TIMEOUT</code>。
+    </p>
+    <p class="hint">
+      所以长轮询改用 <code class="inline">node:http</code>（它没有默认响应超时，超时由我们按预算控制）。
+      不修的话，「他半天不回话」这种最常见的情况，她会以为对方没说话，
+      实际上是她自己的等待断了 —— 然后重试、撞 429、空转烧 token。
+    </p>
+  </details>
+      </div>
+
+      <div class="card" data-page="permit">
+
+  <h2>④ 玩手机 / 刷B站：申请闸门</h2>
+  <p class="desc">
+    手机工具和 <code class="inline">bili_run</code> 默认<b>调不动</b>。她要用得先来问你；你回"同意"才放行。
+    你也可以在这里<b>直接发一张牌子</b>，不用等她开口。
+  </p>
+
+  <h3>当前有效的授权</h3>
+  <div id="grantsBox"><div class="empty">读取中…</div></div>
+
+  <h3>直接批准（不等她申请）</h3>
+  <div class="row">
+    <div class="field">
+      <label>批准哪一类</label>
+      <select id="grantScope">
+        <option value="phone">玩手机（截图 / 点按 / 消消乐）</option>
+        <option value="bili">刷B站（跑一轮）</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>有效多久（分钟，留空用默认）</label>
+      <input type="number" id="grantMinutes" min="1" step="1" placeholder="手机默认 30 / B站默认 60">
+    </div>
+    <button class="primary" id="grantBtn">批准</button>
+    <button id="grantNotifyBtn" title="批准，并给她发一句「批了，去玩吧」">批准并告诉她</button>
+  </div>
+  <p class="hint">
+    上限：手机 120 分钟、B站 180 分钟（超了会截断）。到期自动失效。
+    只对<b>你的私聊</b>有效 —— 群聊和别人的私聊给了也拿不到。
+  </p>
+
+  <h3>她的申请记录</h3>
+  <div id="requestsBox"><div class="empty">读取中…</div></div>
+
+  <details>
+    <summary>闸门到底怎么卡的（点开）</summary>
+    <p class="hint" style="margin-top:8px">
+      判定点在 DSH 里的守卫 <code class="inline">plugins/qq-agent-presets/qq-tool-restrict.mjs</code> 的
+      <code class="inline">verdictFor()</code> —— 不在这个控制台，也不在桥接。因为它拦的那些工具是
+      DSH 直接挂的 MCP server，<b>根本不经过桥接</b>。桥接只负责把申请发给你；这个页面只负责
+      把授权写进 <code class="inline">state/permits.json</code>，守卫读的就是同一个文件。
+    </p>
+    <p class="hint">
+      所以：这个页面关掉、桥接重启，已经批出去的牌子照样按到期时间生效；
+      不点批准就永远拿不到，没有绕过路径。
+    </p>
+  </details>
+      </div>
+
+      <div class="card" data-page="promise">
+
+  <h2>⑤ 约好的事（叫起床 / 提醒）</h2>
+  <p class="desc">
+    她答应你"明早叫你"之后会把约定记下来，到点<b>自己醒来</b>做那件事。
+    你也可以直接替她排一条。
+  </p>
+
+  <h3>待办约定</h3>
+  <div id="promisesBox"><div class="empty">读取中…</div></div>
+
+  <h3>替她排一条</h3>
+  <div class="row">
+    <div class="field">
+      <label>类型</label>
+      <select id="promiseKind">
+        <option value="wakeup">叫他起床</option>
+        <option value="remind">提醒他某个事</option>
+        <option value="checkin">回来找他</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>哪天</label>
+      <input type="date" id="promiseAt">
+    </div>
+    <div class="field" style="flex:0 1 140px">
+      <label>几点</label>
+      <input type="time" id="promiseTime">
+    </div>
+    <div class="field" style="flex:2 1 240px">
+      <label>要做什么（可选）</label>
+      <input type="text" id="promiseText" placeholder="叫他起床，顺便问昨晚睡好没">
+    </div>
+    <button class="primary" id="promiseBtn">排上</button>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <button id="quickWake">+ 明早 7:30 叫他起床</button>
+    <button id="quickHour">+ 一小时后回来找他</button>
+  </div>
+  <p class="hint">
+    到点后她会收到一次唤醒，自己决定说什么（不是定时发固定文案）。
+    过点 3 小时还没做的自动作废，不会半夜补一句"该起床了"。
+  </p>
+  <p class="hint">
+    ⚠️ 这里排的约定由<b>本控制台</b>负责到点唤醒，和她在 QQ 里自己用
+    <code class="inline">qq_promise</code> 记的（存在桥接里）是两条并行的路。
+    两个列表各自独立，互不覆盖。
+  </p>
+      </div>
+
+      <div class="card" data-page="debug">
+
+  <h2>⑥ 现场调试</h2>
+  <p class="desc">不想等自然触发时，用这几个直接看效果。</p>
+
+  <div class="row">
+    <div class="field">
+      <label>会话</label>
+      <select id="keySelect"></select>
+    </div>
+    <button id="wakeBtn">立刻叫醒她一次</button>
+  </div>
+  <details style="margin-top:14px">
+    <summary>这个控制台为什么是独立的一个进程（点开）</summary>
+    <p class="hint" style="margin-top:8px">
+      主控制台 <code class="inline">public/console.html</code> 是被 git 跟踪的插件文件，更新时整体替换。
+      本控制台在 <code class="inline">tools/extra-console/</code>，自己起一个进程、自己提供页面，
+      只调用桥接<b>原本就有</b>的几个接口（读配置、写配置、列会话、唤醒）。
+      所以就算 <code class="inline">bridge.js</code> 被换成上游新版，这里的「主动找人」和「现场调试」照样能用。
+    </p>
+    <p class="hint">
+      授权和约定写在 <code class="inline">state/</code> 下，而 <code class="inline">state/</code>
+      在 <code class="inline">.gitignore</code> 里 —— <b>永远不会</b>被更新碰到。
+      你的设置和数据都在那儿。
+    </p>
+    <p class="hint">
+      要停它：关掉那个黑窗口，或 Ctrl+C。它停掉不影响小鲸鱼在 QQ 里的任何行为。
+    </p>
+  </details>
+      </div>
+
+<div class="card token-card" id="tokenSection" style="display:none">
+  <h2>需要一次令牌</h2>
+  <p class="desc">
+    正常情况下不用管这里 —— 打开页面时令牌已经自动带上了。
+    只有在你把页面另存到本地打开、或者服务读不到令牌时才需要手填一次。
+    令牌就是 <code class="inline">state/console-token</code> 里那一串。
+  </p>
+  <div class="tokenbar">
+    <input type="text" id="tokenInput" placeholder="粘贴 state/console-token 的内容" autocomplete="off">
+    <button class="primary" id="tokenSave">保存令牌</button>
+  </div>
+  <p class="hint">令牌只存在你自己的浏览器 localStorage 里，不会发给任何人；这个页面也只在本机跑。</p>
+</div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- 令牌由 server.mjs 在运行时注入到这里（不会写进本文件本身，免得进 git） -->
+<!--EXTRA_CONSOLE_BOOTSTRAP-->
+
+<script>
+'use strict';
+
+const $ = (id) => document.getElementById(id);
+const TOKEN_KEY = 'qq-extra-console-token';
+// ⭐ 服务端已经把令牌注进页面了（window.__EXTRA_TOKEN__），直接用，不用手填。
+// 留 localStorage 兜底是给"页面被另存/离线打开"这类边角情况用的。
+let token = window.__EXTRA_TOKEN__ || localStorage.getItem(TOKEN_KEY) || '';
+
+let toastTimer = null;
+function toast(msg, kind = '') {
+  const el = $('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + kind;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = 'toast ' + kind; }, 4600);
+}
+
+async function api(path, opts = {}) {
+  const headers = { 'content-type': 'application/json' };
+  if (token) headers['x-extra-token'] = token;
+  const res = await fetch(path, { ...opts, headers });
+  let body = null;
+  try { body = await res.json(); } catch {}
+  if (res.status === 401) {
+    $('tokenSection').style.display = '';
+    $('tokenSection').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    throw new Error('这一项要令牌才能改。上面已经展开填写框了，填一次就行。');
+  }
+  if (!res.ok || (body && body.ok === false)) {
+    throw new Error((body && body.error) || ('HTTP ' + res.status));
+  }
+  return body;
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function fmtTime(ms) {
+  if (!ms) return '—';
+  const d = new Date(Number(ms));
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+let overview = null;
+let conversations = [];
+
+const DEFAULTS = { probability: 0.55, checkIntervalMinMs: 1500000, checkIntervalMaxMs: 3000000, idleThresholdMs: 1200000 };
+
+function fillProactive(p) {
+  $('prob').value = p.probability ?? DEFAULTS.probability;
+  $('intMin').value = Math.round((p.checkIntervalMinMs ?? DEFAULTS.checkIntervalMinMs) / 60000);
+  $('intMax').value = Math.round((p.checkIntervalMaxMs ?? DEFAULTS.checkIntervalMaxMs) / 60000);
+  $('idle').value = Math.round((p.idleThresholdMs ?? DEFAULTS.idleThresholdMs) / 60000);
+}
+
+// 「自由时间」两个数字（2026-10-20）：毫秒 → 分钟 / 小时显示。
+function fillAutonomy(a) {
+  if (!a) return;
+  const q = $('quietGrantMin');
+  const g = $('qzoneGapHour');
+  const st = $('autonomyStatus');
+  // 分钟保留 1 位小数（2.5 分钟这种要显示得出来）
+  if (q) q.value = (Number(a.quietGrantMs) / 60000).toFixed(1);
+  // 小时：整数就不带小数（4 而不是 4.00），非整数保留 2 位
+  if (g) {
+    const hrs = Number(a.qzoneWriteMinGapMs) / 3600000;
+    g.value = Number.isInteger(hrs) ? String(hrs) : hrs.toFixed(2);
+  }
+  if (!st) return;
+  // 状态行要说清"默认值还是你设过的" —— 否则用户不知道自己改过没有
+  const qMin = Number(a.quietGrantMs) / 60000;
+  const gHr = Number(a.qzoneWriteMinGapMs) / 3600000;
+  const gShow = gHr === 0 ? '不限制' : gHr + ' 小时';
+  const tag = (a.quietGrantIsDefault && a.gapIsDefault)
+    ? '　<span class="badge">都是默认值</span>'
+    : '　<span class="badge info">有自定义值</span>';
+  st.innerHTML = `现在：沉默 <b>${qMin} 分钟</b>算她自己的 · 两次空间写至少隔 <b>${gShow}</b>` + tag;
+  // ⚠️ 下面这段也必须用**实际值**，不能写死 —— 否则用户改成 5 小时、
+  //    这里还写着"至少隔 4 小时"，他以为没生效（我第一版就踩了这个坑）。
+  const seen = $('autonomyAsSeen');
+  if (seen) {
+    const gTxt2 = gHr === 0 ? '不限' : gHr + ' 小时';
+    seen.innerHTML = `桥接告诉她的就是这两个数：沉默 <b>${qMin} 分钟</b>、间隔 <b>${gTxt2}</b>。`
+      + '（每轮现读，所以你改完她就跟着变）';
+  }
+}
+
+// ── ② 语音 ─────────────────────────────────────────────────────────────────
+function fillVoice(v) {
+  if (!v) return;
+  $('voiceEnabled').checked = v.enabled === true;
+  $('ttsEnabled').checked = v.ttsEnabled === true;
+  $('autoReadback').checked = v.autoReadback === true;
+  $('maxPerMinute').value = v.maxPerMinute ?? 0;
+  $('maxPerHour').value = v.maxPerHour ?? 0;
+
+  const box = $('voiceStatus');
+  if (v.speaking) {
+    box.innerHTML = `<b>常驻语音：开着</b> —— 她回话会先合成成语音条，发不出去才转文字。`
+      + `<br><span style="color:var(--dim)">引擎 ${esc(v.engine || '?')} · 音色 ${esc(v.voiceName || '?')} · 单条上限 ${v.maxChars} 字</span>`;
+  } else if (!v.enabled) {
+    box.innerHTML = '<b style="color:var(--warn)">语音已关闭</b> —— 她只会发文字。';
+  } else if (!v.ttsEnabled) {
+    box.innerHTML = '<b style="color:var(--warn)">语音通道开着，但合成关着</b> —— 她发不出语音条，实际等于只发文字。';
+  } else {
+    box.innerHTML = '<b>未知状态</b>';
+  }
+}
+
+async function saveVoice(extra = {}) {
+  const body = {
+    voiceEnabled: $('voiceEnabled').checked,
+    ttsEnabled: $('ttsEnabled').checked,
+    autoReadback: $('autoReadback').checked,
+    maxPerMinute: Number($('maxPerMinute').value) || 0,
+    maxPerHour: Number($('maxPerHour').value) || 0,
+    ...extra
+  };
+  if (body.maxPerHour > 0 && body.maxPerMinute > body.maxPerHour) {
+    toast('每分钟上限不该大于每小时上限', 'bad');
+    return;
+  }
+  try {
+    await api('/api/voice', { method: 'POST', body: JSON.stringify(body) });
+    toast('已保存，立即生效（不用重启）。', 'ok');
+    await refresh();
+  } catch (e) {
+    toast('保存失败：' + e.message, 'bad');
+  }
+}
+
+// ── ③ 媒体上限 ─────────────────────────────────────────────────────────────
+// 服务端给的是**原始值**（字节 / 像素），UI 上按 MB / 百万像素显示 ——
+// 换算只在这一处做，避免"面板写 8、实际存 8388608"这种两套单位互相打架。
+const MEDIA_DEF = { maxBytes: 8 * 1024 * 1024, maxPixels: 64_000_000, maxCount: 5 };
+const MB = 1024 * 1024;
+const MP = 1e6;
+
+function renderMedia(media) {
+  const m = { ...MEDIA_DEF, ...(media && typeof media === 'object' ? media : {}) };
+  const setVal = (id, v) => { const el = $(id); if (el && document.activeElement !== el) el.value = v; };
+  setVal('mediaMaxBytesMB', Math.round(m.maxBytes / MB * 10) / 10);
+  setVal('mediaMaxPixelsMP', Math.round(m.maxPixels / MP));
+  setVal('mediaMaxCount', m.maxCount);
+
+  const box = $('mediaStatus');
+  if (!box) return;
+  const recv = overview?.mediaStats;
+  const bytesText = m.maxBytes >= MB ? `${(m.maxBytes / MB).toFixed(1)} MB` : `${m.maxBytes} B`;
+  let extra = '';
+  if (recv && Number(recv.skipped) > 0) {
+    extra = `<br><span style="color:var(--warn)">最近有 ${recv.skipped} 张图因为超限被跳过了</span>
+             —— 如果她常说「看不见图」，可以往上调。`;
+  }
+  box.innerHTML = `现在是 <b>${bytesText}</b> / <b>${Math.round(m.maxPixels / MP)} 百万像素</b> / <b>${m.maxCount} 张</b>。${extra}`;
+}
+
+async function saveMedia(extra = null) {
+  const toBytes = (mb) => Math.round(Number(mb) * MB);
+  const body = extra ?? {
+    maxBytes: toBytes($('mediaMaxBytesMB').value),
+    maxPixels: Math.round(Number($('mediaMaxPixelsMP').value) * MP),
+    maxCount: Math.round(Number($('mediaMaxCount').value)),
+  };
+  for (const [k, v] of Object.entries(body)) {
+    if (!Number.isFinite(v) || v <= 0) { toast('三个值都要是大于 0 的数字', 'bad'); return; }
+  }
+  try {
+    await api('/api/media', { method: 'POST', body: JSON.stringify({ media: body }) });
+    toast('已保存，下一张图就按新上限走（不用重启）。', 'ok');
+    await refresh();
+  } catch (e) {
+    toast('保存失败：' + e.message, 'bad');
+  }
+}
+
+async function fillWait(w) {
+  const DEF = { maxMs: 600000, defaultMs: 30000, defaultQuietMs: 8000 };
+  const v = { ...DEF, ...(w && typeof w === 'object' ? w : {}) };
+  const setVal = (id, val) => { const el = $(id); if (el && document.activeElement !== el) el.value = val; };
+  setVal('waitMaxMin', Math.round(v.maxMs / 60000 * 10) / 10);
+  setVal('waitDefaultSec', Math.round(v.defaultMs / 1000));
+  setVal('waitQuietSec', Math.round(v.defaultQuietMs / 1000));
+  const box = $('waitStatus');
+  if (box) {
+    box.innerHTML = `单次最多等 <b>${(v.maxMs / 60000).toFixed(1)} 分钟</b>，默认 <b>${Math.round(v.defaultMs / 1000)} 秒</b>，`
+      + `沉睡前要安静 <b>${Math.round(v.defaultQuietMs / 1000)} 秒</b>。`;
+  }
+}
+
+async function saveWait(extra = null) {
+  const body = extra ?? {
+    maxMs: Math.round(Number($('waitMaxMin').value) * 60000),
+    defaultMs: Math.round(Number($('waitDefaultSec').value) * 1000),
+    defaultQuietMs: Math.round(Number($('waitQuietSec').value) * 1000),
+  };
+  for (const [k, v] of Object.entries(body)) {
+    if (!Number.isFinite(v) || v <= 0) { toast('三个值都要是大于 0 的数字', 'bad'); return; }
+  }
+  if (body.defaultMs > body.maxMs) { toast('默认等待不能大于单次等待上限', 'bad'); return; }
+  try {
+    await api('/api/wait', { method: 'POST', body: JSON.stringify({ wait: body }) });
+    toast('已保存，下一次等待就按新预算走。', 'ok');
+    await refresh();
+  } catch (e) {
+    toast('保存失败：' + e.message, 'bad');
+  }
+}
+
+async function saveStickerCdn() {
+  const enabled = $('stickerCdnFallback').checked;
+  try {
+    await api('/api/sticker-cdn', { method: 'POST', body: JSON.stringify({ enabled }) });
+    toast(enabled ? '已开启：网关没给地址时会去 CDN 取图。' : '已关闭：市场表情只能看到文字占位。', 'ok');
+    await refresh();
+  } catch (e) {
+    toast('保存失败：' + e.message, 'bad');
+  }
+}
+
+// ── ④ 工具开关 ─────────────────────────────────────────────────────────────
+// 只负责渲染与收集改动；分组说明与现值都由服务端给（见 server.mjs 的 /api/overview）。
+// 这样前端不做任何"哪个开关管哪些工具"的判断 —— 那种判断放在两处一定会漂移。
+let toolsState = null;   // 服务端给的 groups
+const toolsDirty = new Map();  // flag -> boolean（只放用户改过的）
+
+// 当前选中的分组（标签式浏览）。默认第一组。
+let activeToolGroup = null;
+
+function renderTools(tools) {
+  toolsState = tools;
+  const box = $('toolsBox');
+  const st = $('toolsStatus');
+  if (!tools || !Array.isArray(tools.groups) || !tools.groups.length) {
+    box.innerHTML = '<div class="empty">读不到工具开关（桥接连上了吗？）</div>';
+    if (st) st.innerHTML = '<b style="color:var(--warn)">读不到</b> —— 桥接可能没开。';
+    return;
+  }
+
+  // 顶上摘要：总数 + 关着的有哪些
+  if (st) {
+    const offNames = [];
+    for (const g of tools.groups) for (const it of g.items) if (!it.enabled) offNames.push(it.flag);
+    st.innerHTML = offNames.length
+      ? `<b>共 ${tools.total} 个开关，其中 ${offNames.length} 个关着</b>：`
+        + `<span style="color:var(--muted)">${esc(offNames.join('、'))}</span>`
+      : `<b>共 ${tools.total} 个开关，全部开着</b>`;
+  }
+
+  // 首次渲染时定下默认分组；之后保持用户点的那个
+  if (!activeToolGroup || !tools.groups.some((g) => g.id === activeToolGroup)) {
+    activeToolGroup = tools.groups[0].id;
+  }
+
+  // ── 顶部横向标签 ────────────────────────────────────────────────────────
+  // 角标规则：有关着的 → 显示「关 N」（橙）；全开 → 不显示（保持安静）
+  const tabs = tools.groups.map((g) => {
+    const offCount = g.items.filter((it) => (toolsDirty.has(it.flag) ? !toolsDirty.get(it.flag) : !it.enabled)).length;
+    const active = g.id === activeToolGroup;
+    // ⚠️ 数量与角标之间必须有视觉分隔：写成「2 关 1」会被读成「2 关」=「关了两个」，
+    //    而实际是"共 2 个、其中 1 个关着"。加个中点分隔 + 「关着 / 全开」文案。
+    const badge = offCount ? `<span class="tt-off">关着 ${offCount}</span>` : '';
+    return `<button type="button" class="tool-tab${active ? ' active' : ''}${offCount ? ' has-off' : ''}" data-tab="${esc(g.id)}">
+      ${esc(g.label)}<span class="tt-count">${g.items.length}</span>${badge ? '<span class="tt-sep">·</span>' + badge : ''}
+    </button>`;
+  }).join('');
+
+  // ── 当前分组的内容 ──────────────────────────────────────────────────────
+  const g = tools.groups.find((x) => x.id === activeToolGroup);
+  const items = g.items.map((it) => {
+    const val = toolsDirty.has(it.flag) ? toolsDirty.get(it.flag) : it.enabled;
+    const badges = [];
+    if (it.tools.length > 1) badges.push(`<span class="badge-mini multi">一个开关管 ${it.tools.length} 个工具</span>`);
+    if (it.off && it.enabled === false) badges.push('<span class="badge-mini warn">默认关闭</span>');
+    if (it.danger) badges.push('<span class="badge-mini bad">谨慎</span>');
+    if (it.unknown) badges.push('<span class="badge-mini bad">⚠️ 桥接不认识，存不进去</span>');
+    // ⚠️ "没有对应工具"有两种完全不同的原因，不能共用一句文案：
+    //    · operation: true —— 它是某个工具的操作开关（如取消赞），正常，不该报警
+    //    · 其它 —— 名字写错了或工具真被删了，那是**要立刻看见**的错误
+    if (!it.tools.length && it.operation) badges.push('<span class="badge-mini">操作开关（不是独立工具）</span>');
+    else if (!it.tools.length) badges.push('<span class="badge-mini bad">⚠️ 工具未注册，名字可能写错了</span>');
+    const names = it.tools.length ? it.tools.join(' + ') : '(没有对应工具)';
+    return `<label class="tool-item ${val ? '' : 'off'}">
+      <input type="checkbox" data-flag="${esc(it.flag)}" ${val ? 'checked' : ''}>
+      <span class="ti-main">
+        <span class="ti-tools">${esc(names)}<span class="ti-flag">[${esc(it.flag)}]</span></span>
+        ${it.note ? `<span class="ti-note">${esc(it.note)}</span>` : ''}
+        ${badges.length ? `<span class="ti-badges">${badges.join('')}</span>` : ''}
+      </span>
+    </label>`;
+  }).join('');
+
+  box.innerHTML = `<div class="tool-tabs">${tabs}</div>
+    <div class="tool-panel">
+      ${g.note ? `<div class="tp-note">${esc(g.note)}</div>` : ''}
+      ${items}
+    </div>`;
+
+  // 标签切换：只切显示，不动数据（改动仍留在 toolsDirty 里）
+  box.querySelectorAll('[data-tab]').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      activeToolGroup = tab.dataset.tab;
+      renderTools(toolsState);
+    });
+  });
+
+  // 勾选：只记改动，不立即提交（避免误触就生效）
+  box.querySelectorAll('input[data-flag]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      const flag = cb.dataset.flag;
+      const original = findToolItem(flag)?.enabled;
+      if (original === undefined) return;
+      if (cb.checked === original) toolsDirty.delete(flag);
+      else toolsDirty.set(flag, cb.checked);
+      cb.closest('.tool-item')?.classList.toggle('off', !cb.checked);
+      updateToolsDirty();
+      // ⚠️ 重渲染才能更新标签上的「关 N」角标 —— 但**不能**在这里整个重渲染：
+      //    那会把用户刚勾的 checkbox 状态一并重置（toolsDirty 虽在，但焦点会丢）。
+      //    所以只更新标签角标文字，不动面板。
+      refreshToolTabBadges();
+    });
+  });
+
+  updateToolsDirty();
+}
+
+/** 只刷新标签上的角标（勾选后调用，避免整块重渲染丢焦点）。 */
+function refreshToolTabBadges() {
+  if (!toolsState) return;
+  const box = $('toolsBox');
+  for (const g of toolsState.groups) {
+    const tab = box.querySelector(`[data-tab="${g.id}"]`);
+    if (!tab) continue;
+    const offCount = g.items.filter((it) => (toolsDirty.has(it.flag) ? !toolsDirty.get(it.flag) : !it.enabled)).length;
+    tab.classList.toggle('has-off', offCount > 0);
+    let badge = tab.querySelector('.tt-off');
+    if (offCount > 0) {
+      if (!badge) { badge = document.createElement('span'); badge.className = 'tt-off'; tab.appendChild(badge); }
+      badge.textContent = `关着 ${offCount}`;
+    } else if (badge) {
+      badge.remove();
+    }
+  }
+}
+
+function findToolItem(flag) {
+  for (const g of (toolsState?.groups ?? [])) {
+    const hit = g.items.find((it) => it.flag === flag);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function updateToolsDirty() {
+  const el = $('toolsDirty');
+  if (!el) return;
+  if (!toolsDirty.size) { el.textContent = ''; return; }
+  const parts = [...toolsDirty.entries()].map(([k, v]) => `${k}=${v ? '开' : '关'}`);
+  el.textContent = `待保存 ${toolsDirty.size} 项：${parts.join('，')}`;
+}
+
+async function saveTools() {
+  if (!toolsDirty.size) { toast('没有改动', ''); return; }
+  const patch = {};
+  for (const [k, v] of toolsDirty) patch[k] = v;
+  try {
+    await api('/api/tools', { method: 'POST', body: JSON.stringify({ tools: patch }) });
+    toolsDirty.clear();
+    toast(`已保存 ${Object.keys(patch).length} 项。\n注意：要重启 DSH 才真正从工具清单里消失。`, 'ok');
+    await refresh();
+  } catch (e) {
+    toast('保存失败：' + e.message, 'bad');
+  }
+}
+
+function renderGrants(permits) {
+  const box = $('grantsBox');
+  const grants = permits?.grants ?? [];
+  if (!grants.length) {
+    box.innerHTML = '<div class="empty">现在没有有效授权 —— 她调手机工具会被拒绝，并提示来问你。</div>';
+    return;
+  }
+  box.innerHTML = `<table>
+    <thead><tr><th>类别</th><th>到期</th><th>还剩</th><th>原因</th><th></th></tr></thead>
+    <tbody>${grants.map((g) => `<tr>
+      <td>${esc(g.label || g.scope)}</td>
+      <td class="mono">${esc(fmtTime(g.expiresAt))}</td>
+      <td><span class="badge ok">${esc(g.remainingText)}</span></td>
+      <td>${esc(g.why || '—')}</td>
+      <td style="text-align:right"><button class="danger" data-revoke="${esc(g.scope)}">收回</button></td>
+    </tr>`).join('')}</tbody></table>`;
+  box.querySelectorAll('[data-revoke]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      try {
+        await api('/api/revoke', { method: 'POST', body: JSON.stringify({ scope: btn.dataset.revoke }) });
+        toast('已收回。', 'ok');
+        await refresh();
+      } catch (e) { toast('收回失败：' + e.message, 'bad'); }
+    });
+  });
+}
+
+function renderRequests(permits) {
+  const box = $('requestsBox');
+  const reqs = (permits?.requests ?? []).slice().reverse();
+  if (!reqs.length) { box.innerHTML = '<div class="empty">她还没申请过。</div>'; return; }
+  const badge = (s) => s === 'granted' ? '<span class="badge ok">已批准</span>'
+    : s === 'denied' ? '<span class="badge bad">被拒 / 超时</span>'
+    : '<span class="badge warn">等待中</span>';
+  box.innerHTML = `<table>
+    <thead><tr><th>时间</th><th>类别</th><th>她说想干嘛</th><th>结果</th></tr></thead>
+    <tbody>${reqs.map((r) => `<tr>
+      <td class="mono">${esc(fmtTime(r.createdAt))}</td>
+      <td>${esc((overview?.scopes?.[r.scope]?.label) || r.scope)}</td>
+      <td>${esc(r.why || '—')}</td>
+      <td>${badge(r.status)}</td>
+    </tr>`).join('')}</tbody></table>`;
+}
+
+function renderPromises(list) {
+  const box = $('promisesBox');
+  const arr = list ?? [];
+  if (!arr.length) {
+    box.innerHTML = '<div class="empty">没有待办约定。（如果她说过"明早叫你"却这里没有，说明那条记在桥接那边，或者根本没记——可以提醒她。）</div>';
+    return;
+  }
+  arr.sort((a, b) => Number(a.at) - Number(b.at));
+  const now = Date.now();
+  box.innerHTML = `<table>
+    <thead><tr><th>时间</th><th>类型</th><th>做什么</th><th>状态</th><th></th></tr></thead>
+    <tbody>${arr.map((p) => `<tr>
+      <td class="mono">${esc(fmtTime(p.at))}</td>
+      <td>${esc((overview?.promiseKinds?.[p.kind]) || p.kind)}</td>
+      <td>${esc(p.text || '—')}</td>
+      <td>${p.firedAt ? '<span class="badge warn">已触发</span>'
+        : Number(p.at) <= now ? '<span class="badge warn">到点中</span>'
+        : `<span class="badge ok">${esc(p.remainingText || '')}</span>`}</td>
+      <td style="text-align:right"><button class="danger" data-del="${esc(p.id)}">删</button></td>
+    </tr>`).join('')}</tbody></table>`;
+  box.querySelectorAll('[data-del]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      try {
+        await api('/api/promise-delete', { method: 'POST', body: JSON.stringify({ id: btn.dataset.del }) });
+        toast('已删除', 'ok');
+        await refresh();
+      } catch (e) { toast('删除失败：' + e.message, 'bad'); }
+    });
+  });
+}
+
+function renderConversations() {
+  const sel = $('keySelect');
+  if (!conversations.length) { sel.innerHTML = '<option value="">（还没有会话）</option>'; return; }
+  const prev = sel.value;
+  sel.innerHTML = conversations.map((k) => `<option value="${esc(k)}">${esc(k)}</option>`).join('');
+  // 默认选中**你自己的私聊**（private:<ownerQQ>），不是群聊、也不是别人的私聊 ——
+  // "现场调试"绝大多数时候是想叫醒她对你说句话。用户手动选过就保持他的选择。
+  const ownerKey = overview?.ownerQQ ? `private:${overview.ownerQQ}` : '';
+  const preferred = prev && conversations.includes(prev)
+    ? prev
+    : (ownerKey && conversations.includes(ownerKey)
+        ? ownerKey
+        : (conversations.find((k) => k.startsWith('private:')) || conversations[0]));
+  sel.value = preferred;
+}
+
+// 你自己的私聊 key（给"批准并告诉她"用）
+function ownerPrivateKey() {
+  return overview?.ownerQQ ? `private:${overview.ownerQQ}` : '';
+}
+
+// 时间轴：与 src/time-context.js 的边界对齐（仅用于画图，真实判定在后端）
+const PERIODS = [
+  [0, 5, 'night'], [5, 6, ''], [6, 8, 'meal'], [8, 11, ''],
+  [11, 13, 'meal'], [13, 17, ''], [17, 19, 'meal'], [19, 23, ''],
+  [23, 24, 'night']
+];
+function renderTimeline() {
+  const nowH = new Date().getHours();
+  const wrap = $('timeline'), axis = $('axis');
+  wrap.innerHTML = ''; axis.innerHTML = '';
+  for (let h = 0; h < 24; h += 1) {
+    const seg = document.createElement('div');
+    seg.className = 'seg';
+    const p = PERIODS.find(([a, b]) => h >= a && h < b);
+    if (p && p[2]) seg.classList.add(p[2]);
+    if (h === nowH) seg.classList.add('now');
+    seg.title = `${h}:00`;
+    wrap.appendChild(seg);
+  }
+  // 刻度：生成 24 个与格子**同列**的占位格，需要标注的填上 "h:00"。
+  //
+  // ⚠️ 为什么不再用 grid-column / left:% 定位：那两种都是"算"出来的位置，
+  //    而格子的列宽由 grid 轨道决定（还有 gap、min-width），算出来的百分比
+  //    一定会随容器宽度偏移 —— 实测 0:00 落在格子内、16:00 又偏右。
+  //    改成"一格对一格"之后，对齐由结构保证：刻度格和它上面那个格子占同一列，
+  //    无论容器多宽都对齐。
+  for (let h = 0; h < 24; h += 1) {
+    const cell = document.createElement('span');
+    // 每 4 小时标一个
+    if (h % 4 === 0) cell.textContent = h + ':00';
+    axis.appendChild(cell);
+  }
+  const meal = (nowH >= 11 && nowH < 13) || (nowH >= 17 && nowH < 19) || (nowH >= 6 && nowH < 8);
+  const night = nowH >= 23 || nowH < 6;
+  let tip = `现在 ${nowH} 点`;
+  if (meal) tip += ' · 饭点 ×1.45';
+  if (night) tip += ' · 深夜；若已冷场则 ×0.15（不会半夜叫你）';
+  $('nowFactor').textContent = tip + '（精确值看 state/bridge.log 里的「主动机会判定」）';
+}
+
+// 读「日期 + 时间」两个原生控件，拼成毫秒时间戳（本地时区）。
+//
+// ⚠️ 不能用 new Date('2026-10-20') —— 那会被当成 UTC 零点，东八区偏成前一天。
+//    也不能用 new Date('2026-10-20T07:30') 直接算：ISO 无时区串在部分浏览器
+//    按 UTC 解释。所以手动拆数字再 new Date(y, m-1, d, h, min)，那是本地时间。
+function readPromiseAt() {
+  const dateVal = String($('promiseAt').value || '').trim();   // YYYY-MM-DD
+  const timeVal = String($('promiseTime').value || '').trim(); // HH:MM
+  if (!dateVal) return 0;
+  const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateVal);
+  if (!dm) return 0;
+  const tm = /^(\d{1,2}):(\d{2})$/.exec(timeVal);
+  const hh = tm ? +tm[1] : 0;
+  const mi = tm ? +tm[2] : 0;
+  const d = new Date(+dm[1], +dm[2] - 1, +dm[3], hh, mi, 0, 0);
+  if (!Number.isFinite(d.getTime())) return 0;
+  return d.getTime();
+}
+
+/** 默认填「下一个整点或下一个 7:30」——打开页面时就有个合理初值，不用从空白开始填。 */
+function defaultPromiseAt() {
+  const d = new Date();
+  // 若现在还没到 7:30 → 今天 7:30；否则明天 7:30
+  const t = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 7, 30, 0, 0);
+  if (t.getTime() <= Date.now()) t.setDate(t.getDate() + 1);
+  return { date: t, time: '07:30' };
+}
+
+function fmtDateInput(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** 把「日期+时间」两个框填上给定时间（Date 或毫秒）。 */
+function setPromiseInputs(at) {
+  const d = at instanceof Date ? at : new Date(Number(at));
+  if (!Number.isFinite(d.getTime())) return;
+  const p = (x) => String(x).padStart(2, '0');
+  const dateEl = $('promiseAt'), timeEl = $('promiseTime');
+  if (dateEl) dateEl.value = fmtDateInput(d);
+  if (timeEl) timeEl.value = `${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+async function refresh() {
+  const badge = $('connBadge');
+  try {
+    overview = await api('/api/overview');
+    conversations = overview.conversations || [];
+    badge.textContent = '已连接'; badge.className = 'badge ok';
+    fillProactive(overview.proactive || {});
+    fillAutonomy(overview.autonomy);
+    fillVoice(overview.voice);
+    renderMedia(overview.media);
+    fillWait(overview.wait);
+    // 表情 CDN 兜底开关（默认开）
+    if ($('stickerCdnFallback')) $('stickerCdnFallback').checked = overview.stickerCdnFallback !== false;
+    renderTools(overview.tools);
+    renderTimeline();
+    renderConversations();
+    renderGrants(overview.permits);
+    renderRequests(overview.permits);
+    renderPromises(overview.promises);
+    updateNavBadges();
+  } catch (e) {
+    badge.textContent = '连不上桥接'; badge.className = 'badge bad';
+    toast('读取失败：' + e.message, 'bad');
+  }
+}
+
+async function saveProactive() {
+  const body = {
+    probability: Number($('prob').value),
+    checkIntervalMinMs: Math.round(Number($('intMin').value) * 60000),
+    checkIntervalMaxMs: Math.round(Number($('intMax').value) * 60000),
+    idleThresholdMs: Math.round(Number($('idle').value) * 60000)
+  };
+  if (!(body.probability >= 0 && body.probability <= 1)) { toast('概率要在 0~1 之间', 'bad'); return; }
+  if (body.checkIntervalMaxMs < body.checkIntervalMinMs) { toast('上限不能小于下限', 'bad'); return; }
+  await api('/api/proactive', { method: 'POST', body: JSON.stringify({ proactive: body }) });
+  toast('已保存。下一次排程就按新参数。', 'ok');
+  await refresh();
+}
+
+async function grant(notify) {
+  const scope = $('grantScope').value;
+  const minutes = Number($('grantMinutes').value) || 0;
+  try {
+    const data = await api('/api/grant', { method: 'POST', body: JSON.stringify({ scope, minutes: minutes || undefined }) });
+    let msg = `已批准「${overview?.scopes?.[scope]?.label || scope}」，还剩 ${data.remainingText}。`;
+    if (notify) {
+      // ⚠️ 必须发到**你的私聊**：发到群聊就变成"在群里播报批准"，发到别人私聊更离谱。
+      const key = ownerPrivateKey();
+      if (!key) {
+        msg += '\n（没找到你的私聊会话，就没跟她说；牌子已经生效。）';
+      } else {
+        try {
+          await api('/api/notify', {
+            method: 'POST',
+            body: JSON.stringify({ key, text: `✅ 批了，去${scope === 'bili' ? '刷会儿 B站' : '玩会儿手机'}吧。` })
+          });
+          msg += '\n也跟她说了。';
+        } catch (e) { msg += `\n但她那边没发出去：${e.message}`; }
+      }
+    }
+    toast(msg, 'ok');
+    await refresh();
+  } catch (e) { toast('批准失败：' + e.message, 'bad'); }
+}
+
+async function createPromise(kind, at, text) {
+  try {
+    const data = await api('/api/promise', { method: 'POST', body: JSON.stringify({ kind, at, text }) });
+    toast(`已排上：${fmtTime(at)}（${data.remainingText}后）`, 'ok');
+    await refresh();
+  } catch (e) { toast('排失败：' + e.message, 'bad'); }
+}
+
+async function wakeNow() {
+  const key = $('keySelect').value;
+  if (!key) { toast('先选一个会话', 'bad'); return; }
+  try {
+    await api('/api/wake', { method: 'POST', body: JSON.stringify({ key, reason: 'extra-console' }) });
+    toast('已叫醒。她会在几秒内开始一轮（8 秒合并窗口后）。', 'ok');
+  } catch (e) { toast('唤醒失败：' + e.message, 'bad'); }
+}
+
+$('refreshBtn').addEventListener('click', refresh);
+// ⭐「自由时间」保存（2026-10-20，主人要求：数字要能在控制台改）。
+//    界面上单位是分钟/小时，提交时换成毫秒（服务端口径一直是毫秒）。
+$('saveAutonomy')?.addEventListener('click', async () => {
+  const qMin = Number($('quietGrantMin').value);
+  const gHour = Number($('qzoneGapHour').value);
+  // 前端先验一遍：给的是人话提示，比服务端那句更直接
+  if (!Number.isFinite(qMin) || qMin < 10 / 60 || qMin > 60) {
+    toast('「沉默多久算聊完」要在 10 秒 ~ 60 分钟之间', 'bad');
+    return;
+  }
+  if (!Number.isFinite(gHour) || gHour < 0 || gHour > 168) {
+    toast('「两次空间写之间」要在 0 ~ 168 小时之间（0 = 不限制）', 'bad');
+    return;
+  }
+  try {
+    await api('/api/autonomy', {
+      method: 'POST',
+      body: JSON.stringify({
+        autonomy: {
+          quietGrantMs: Math.round(qMin * 60000),
+          qzoneWriteMinGapMs: Math.round(gHour * 3600000),
+        },
+      }),
+    });
+    toast('保存好了，立刻生效（不用重启）', 'ok');
+    await refresh();
+  } catch (e) {
+    toast('保存失败：' + (e?.message ?? e), 'bad');
+  }
+});
+
+$('resetAutonomy')?.addEventListener('click', () => {
+  // 只**填**默认值，不直接保存 —— 让用户再点一次保存确认（避免误点就改掉）
+  $('quietGrantMin').value = '2.5';
+  $('qzoneGapHour').value = '4';
+  toast('已填回默认值（2.5 分钟 / 4 小时），点「保存」才生效', '');
+});
+
+$('saveProactive').addEventListener('click', () => saveProactive().catch((e) => toast(e.message, 'bad')));
+// 语音：三个开关改动后都要点保存才提交（避免误触），另配两个一键预设
+$('saveVoice').addEventListener('click', () => saveVoice());
+$('saveTools').addEventListener('click', () => saveTools());
+$('toolsReset').addEventListener('click', () => { toolsDirty.clear(); refresh(); });
+// 媒体上限：保存前先在服务端钳一遍（超天花板会明确报错，而不是静默改小）
+$('saveMedia').addEventListener('click', () => saveMedia());
+$('mediaReset').addEventListener('click', () => {
+  $('mediaMaxBytesMB').value = MEDIA_DEF.maxBytes / MB;
+  $('mediaMaxPixelsMP').value = MEDIA_DEF.maxPixels / MP;
+  $('mediaMaxCount').value = MEDIA_DEF.maxCount;
+  toast('已填回默认值（8MB / 64MP / 5 张），点「保存」才生效', '');
+});
+$('saveStickerCdn').addEventListener('click', () => saveStickerCdn());
+$('saveWait').addEventListener('click', () => saveWait());
+$('resetWait').addEventListener('click', () => {
+  $('waitMaxMin').value = 10;
+  $('waitDefaultSec').value = 30;
+  $('waitQuietSec').value = 8;
+  toast('已填回默认值（10 分钟 / 30 秒 / 8 秒），点「保存」才生效', '');
+});
+$('voiceOn').addEventListener('click', () => {
+  $('voiceEnabled').checked = true;
+  $('ttsEnabled').checked = true;
+  saveVoice({ voiceEnabled: true, ttsEnabled: true }).catch((e) => toast(e.message, 'bad'));
+});
+$('voiceOff').addEventListener('click', () => {
+  $('voiceEnabled').checked = false;
+  saveVoice({ voiceEnabled: false }).catch((e) => toast(e.message, 'bad'));
+});
+$('resetProactive').addEventListener('click', () => {
+  $('prob').value = DEFAULTS.probability;
+  $('intMin').value = DEFAULTS.checkIntervalMinMs / 60000;
+  $('intMax').value = DEFAULTS.checkIntervalMaxMs / 60000;
+  $('idle').value = DEFAULTS.idleThresholdMs / 60000;
+  saveProactive().catch((e) => toast(e.message, 'bad'));
+});
+$('grantBtn').addEventListener('click', () => grant(false));
+$('grantNotifyBtn').addEventListener('click', () => grant(true));
+$('promiseBtn').addEventListener('click', () => {
+  const at = readPromiseAt();
+  if (!at) { toast('先选个日期（点日历图标就能选）', 'bad'); return; }
+  // 过去的时刻排不了（服务端也会拒），前端先拦一下，提示更直接
+  if (at <= Date.now() - 60000) { toast('这个时间已经过去了，换一个未来的时间', 'bad'); return; }
+  createPromise($('promiseKind').value, at, $('promiseText').value);
+});
+$('quickWake').addEventListener('click', () => {
+  const d = new Date();
+  d.setDate(d.getDate() + (d.getHours() >= 7 ? 1 : 0));
+  d.setHours(7, 30, 0, 0);
+  setPromiseInputs(d);
+  $('promiseKind').value = 'wakeup';
+  toast('已填好：' + fmtDateInput(d) + ' 07:30，点「排上」确认', '');
+});
+$('quickHour').addEventListener('click', () => createPromise('checkin', Date.now() + 3600000, '回来问问他'));
+$('wakeBtn').addEventListener('click', wakeNow);
+
+$('tokenSave').addEventListener('click', async () => {
+  token = $('tokenInput').value.trim();
+  localStorage.setItem(TOKEN_KEY, token);
+  try {
+    await api('/api/proactive', { method: 'POST', body: JSON.stringify({ proactive: { probability: Number($('prob').value) } }) });
+    toast('令牌可用。', 'ok');
+    $('tokenSection').style.display = 'none';
+    $('tokenInput').value = '';
+  } catch (e) { toast('令牌好像不对：' + e.message, 'bad'); }
+});
+
+// 令牌条只在"确实需要"时出现：页面刚打开只看不点，不该先给用户一堵墙。
+// 第一次写操作失败（401）时再亮出来，并说明令牌在哪儿。
+if (!token) $('tokenSection').style.display = 'none';
+
+refresh();
+setInterval(() => { refresh().catch(() => {}); }, 15000);
+
+// ── 侧边栏切页（2026-10-20 重构）──────────────────────────────────────────
+// 只做 DOM 显隐，不重新拉数据 —— 数据在 refresh() 里统一刷新，
+// 切页时不该再打一轮接口（既慢又可能触发限流）。
+function showPage(id) {
+  const pages = [...document.querySelectorAll('[data-page]')];
+  if (!pages.length) return;
+  const target = pages.find((p) => p.dataset.page === id) || pages[0];
+  pages.forEach((p) => p.classList.toggle('active', p === target));
+  document.querySelectorAll('[data-nav]').forEach((b) => {
+    b.classList.toggle('active', b.dataset.nav === target.dataset.page);
+  });
+  const crumb = document.querySelector('[data-crumb]');
+  // ⚠️ 只取**这张页面卡片自己的**第一个 h2（:scope > h2），
+  //    不能用 querySelector('h2') —— 那会命中外层卡片里嵌套的其它卡片
+  //    （tokenSection 曾嵌在调试页里，breadcrumb 就显示成了「需要一次令牌」）。
+  if (crumb) {
+    const own = target.querySelector(':scope > h2');
+    crumb.textContent = own?.textContent?.trim() || target.dataset.page;
+  }
+  try { location.hash = target.dataset.page; } catch {}
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+document.querySelectorAll('[data-nav]').forEach((btn) => {
+  btn.addEventListener('click', () => showPage(btn.dataset.nav));
+});
+
+// 约定的时间控件：打开就给个合理初值（下一个 7:30），不必从空白开始填。
+// ⚠️ 必须放在 setPromiseInputs / defaultPromiseAt **定义之后**（它们是函数声明，
+//    会被提升，所以位置其实不敏感；但读起来更清楚）。
+//    曾经漏掉这一步 → 日期框空着显示 yyyy/mm/dd，主人还得手点日历。
+{
+  const d = defaultPromiseAt();
+  setPromiseInputs(d.date);
+  // 时间单独兜一下：某些浏览器 type=time 需要 HH:MM，setPromiseInputs 已按此格式写
+  const timeEl = $('promiseTime');
+  if (timeEl && !timeEl.value) timeEl.value = d.time;
+}
+
+// 初始页：URL 的 #hash 优先，其次第一页
+{
+  const want = (location.hash || '').replace(/^#/, '');
+  const pages = [...document.querySelectorAll('[data-page]')];
+  showPage(pages.some((p) => p.dataset.page === want) ? want : pages[0]?.dataset.page);
+}
+
+// 侧边栏角标：把每页的关键数字标出来（不用点进去就能看个大概）
+// ⚠️ 只更新角标，不改页面内容；数据来源就是 refresh() 已经拿到的 overview。
+function updateNavBadges() {
+  if (!overview) return;
+  const set = (id, text) => {
+    const el = document.querySelector(`[data-badge="${id}"]`);
+    if (el) el.textContent = text || '';
+  };
+  const off = overview.tools?.offTotal;
+  set('tools', off ? `${off} 关` : '');
+  set('permit', (overview.permits?.grants?.length || 0) ? `${overview.permits.grants.length} 张` : '');
+  set('promise', (overview.promises?.length || 0) ? `${overview.promises.length} 条` : '');
+  set('voice', overview.voice?.speaking ? '' : '关');
+}
+
+</script>
+</body>
+</html>
