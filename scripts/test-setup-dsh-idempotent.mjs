@@ -4,8 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { dshModulesDir } from './dsh-modules.mjs';
+import { fileURLToPath } from 'node:url';
+import { dshModulesDir, importFromDsh, cleanupAsarTemp } from './dsh-modules.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // 夹具放系统临时目录，**不要**放仓库的 state/：harden-state-acl.mjs 会把 state/ 的
@@ -88,7 +88,11 @@ console.log(`${hasBareArray ? '❌' : '✅'} 无独立成行的空数组 []`);
 if (hasBareArray) failed += 1;
 
 // 断言 4：YAML 可解析且顶层是数组
-const YAML = await import(pathToFileURL(path.join(dshModulesDir(), 'js-yaml/index.js')).href);
+// ⚠️ 2026-11-07：这里原来直接 `import(path.join(dshModulesDir(),'js-yaml/index.js'))`。
+//    磁盘布局没问题，但 Electron 桌面包下 dshModulesDir() 返回的是 app.asar 的**伪目录**，
+//    pathToFileURL 拼出来的 URL 在磁盘上根本不存在 ⇒ ERR_MODULE_NOT_FOUND。
+//    改用同目录的 importFromDsh（asar 布局会先把包抽到临时目录再 import）。
+const YAML = await importFromDsh(dshModulesDir(), 'js-yaml/index.js');
 const yaml = YAML.default ?? YAML;
 let doc;
 try { doc = yaml.load(finalPatch); } catch (e) {

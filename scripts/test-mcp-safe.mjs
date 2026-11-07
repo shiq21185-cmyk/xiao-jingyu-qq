@@ -34,13 +34,13 @@ try {
   const groups = await client.callTool({ name: 'qq_list_groups', arguments: {} });
   console.log('✅ qq_list_groups:', groups.content?.[0]?.text?.slice(0, 200));
 
-  const history = await client.callTool({ name: 'qq_get_group_history', arguments: { groupId: 123456789 } });
-  const histText = history.content?.[0]?.text ?? '';
-  if (RESERVED2) {
-    console.log('🚫 reserved2 下旧只读工具不可用:', history.isError ? '被拒绝 ✓' : '⚠️ 未被拒绝（异常！）', histText.slice(0, 120));
-  } else {
-    console.log('✅ qq_get_group_history 含 message_id:', /message_id/.test(histText) ? '是 ✓' : '否 ✗');
-  }
+  // ⚠️ 2026-11-06：qq_get_group_history / qq_get_group_members 已随精简工具面下线
+  //    （主人 m05483），这里改成守着「它们确实不在工具表里」这条边界 ——
+  //    真被重新挂回来时这条会立刻报出来，而不是悄悄多烧一份工具描述。
+  const toolsEarly = await client.listTools();
+  const legacyGone = ['qq_get_group_history', 'qq_get_group_members']
+    .filter((n) => toolsEarly.tools.some((t) => t.name === n));
+  console.log('🚫 旧只读群工具已下线:', legacyGone.length === 0 ? '是 ✓' : `否 ✗（仍在：${legacyGone.join(', ')}）`);
 
   // 白名单外发送：应被拒绝（isError）
   const denied = await client.callTool({ name: 'qq_send_group_message', arguments: { groupId: 100003, message: '测试' } });
@@ -52,8 +52,10 @@ try {
   const schemaText = JSON.stringify(sendTool?.inputSchema ?? {});
   console.log('✅ replyToMessageId 参数:', schemaText.includes('replyToMessageId') ? '存在 ✓' : '缺失 ✗');
   console.log('✅ qq_reply 工具:', tools2.tools.some((t) => t.name === 'qq_reply') ? '存在 ✓' : '缺失 ✗');
-  console.log('✅ qq_slang_query 工具:', tools2.tools.some((t) => t.name === 'qq_slang_query') ? '存在 ✓' : '缺失 ✗');
-  console.log('✅ qq_slang_submit 工具:', tools2.tools.some((t) => t.name === 'qq_slang_submit') ? '存在 ✓' : '缺失 ✗');
+  // 2026-11-06 主人说「不用黑话了」，这两个按预期应当缺席。
+  const slangGone = ['qq_slang_query', 'qq_slang_submit']
+    .filter((n) => tools2.tools.some((t) => t.name === n));
+  console.log('🚫 黑话工具已下线:', slangGone.length === 0 ? '是 ✓' : `否 ✗（仍在：${slangGone.join(', ')}）`);
 
   // 白名单内但 replyToMessageId 非法：应在发送前被参数校验拒绝（不会真实发消息）
   const invalidReply = await client.callTool({

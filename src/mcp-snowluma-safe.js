@@ -271,7 +271,7 @@ async function authorizeRead(key) {
   throw new Error('旧只读工具没有会话令牌；请使用带会话令牌的 v2 读工具');
 }
 
-// 旧只读工具（qq_status 之外的 qq_list_groups / qq_get_group_members / qq_get_group_history）
+// 旧只读工具（qq_status 之外的 qq_list_groups）
 // 没有会话令牌，因此**只能在封闭 agent（管理员私聊）里使用**。
 //
 // 这里用「确认是 closed-agent 才放行」的白名单写法，而不是「看到 reserved2 就拒绝」的黑名单写法：
@@ -304,7 +304,6 @@ const TOOL_CONFIG_FLAGS = {
   qq_social_state: 'socialState',
   qq_mark_read: 'markRead',
   qq_set_wake_config: 'setWakeConfig',
-  qq_send_burst: 'sendBurst',
   qq_send_message: 'sendMessage',
   qq_wait_for_messages: 'waitMessages',
   qq_report_feedback: 'feedback',
@@ -314,9 +313,6 @@ const TOOL_CONFIG_FLAGS = {
   qq_memory_append: 'memory',
   qq_memory_query: 'memory',
   qq_memory_remove: 'memory',
-  qq_memory_clear: 'memory',
-  qq_slang_query: 'slangQuery',
-  qq_slang_submit: 'slangSubmit',
   qq_send_voice: 'sendVoice',
   qq_list_voices: 'sendVoice',
   // qq_say 是语音合成唯一的入口（2026-10-20 由 qq_say + qq_speak 合并而来）。
@@ -359,10 +355,8 @@ const TOOL_CONFIG_FLAGS = {
   qq_qzone_comment: 'qzoneComment',
   qq_qzone_delete: 'qzoneDelete',
   qq_qzone_set_right: 'qzoneSetRight',
-  qq_get_account_info: 'getAccount',
   qq_write_diary: 'writeDiary',
   qq_read_diary: 'readDiary',
-  qq_request_permission: 'requestPermission',
   qq_promise: 'promise',
   qq_promise_done: 'promise',
   // 语音通话（档 2）：四个工具共用 tools.call 一个开关。
@@ -378,6 +372,14 @@ const TOOL_CONFIG_FLAGS = {
   qq_run_command: 'localExec',
   qq_read_file: 'localExec',
   qq_write_file: 'localExec',
+  // 桌面 GUI 面（2026-11-02，主人 m00593「看看 dsh 里有没有合理的工具」）：
+  // 截屏 / 鼠标 / 键盘 / 列窗口。和上面三个共用一个 localExec 开关 ——
+  // 它们本来就是同一件事的不同面（"这台电脑的手和眼睛"），拆两个开关只会
+  // 让主人在控制台里想关的时候关不干净。
+  qq_screenshot: 'localExec',
+  qq_mouse: 'localExec',
+  qq_keyboard: 'localExec',
+  qq_windows: 'localExec',
   // 发文件（2026-10-27）：联网下载 / 本机文件 → QQ 文件气泡。
   // 和上面三个同一档：它会在主人电脑上真下载、真读写文件，所以只在管理员私聊可用。
   qq_send_file: 'sendFile',
@@ -385,7 +387,10 @@ const TOOL_CONFIG_FLAGS = {
   // 和上面几个同一档：它会触发计费、也会往聊天里发图，默认只在管理员私聊可用。
   qq_draw_image: 'drawImage',
   qq_send_image: 'sendImage',
+  qq_watch_video: 'watchVideo',
+  qq_watch_screen: 'watchScreen',
 };
+
 // ── 少数工具：即使开关关了也要注册 ─────────────────────────────────────────
 //
 // 为什么需要这个例外名单：注册期过滤能省 token，但被过滤掉的工具在模型眼里
@@ -423,8 +428,6 @@ const ALWAYS_REGISTER = new Set([
   //    时误以为工具坏了。所以不设开关，永远注册。
   'qq_status',            // 查自己的登录状态与账号
   'qq_list_groups',       // 自己加了哪些群
-  'qq_get_group_members', // 群成员列表
-  'qq_get_group_history', // 群历史消息
 
   // ④ 身体发声：只有管理员私聊能用（桥接 /api/body/say 的 ownerKey 硬校验），
   //    频率靠她自己把握，不需要一个全局开关 —— 它不往外发消息、不动账号。
@@ -448,6 +451,7 @@ const disabledTools = [];
     return registerTool(name, ...rest);
   };
 }
+
 
 server.tool(
   'qq_status',
@@ -492,60 +496,6 @@ server.tool(
   }
 );
 
-server.tool(
-  'qq_get_group_members',
-  '列出指定群的成员列表（只读）：QQ 号、昵称、群名片。',
-  { groupId: z.union([z.number(), z.string()]).describe('群号') },
-  async ({ groupId }) => {
-    const g = String(groupId);
-    try {
-      if (!(await legacyReadToolAllowed())) {
-        return { content: [{ type: 'text', text: '旧只读工具仅在封闭 agent（管理员私聊）模式可用；其它模式请使用带会话令牌的 v2 读工具' }], isError: true };
-      }
-    } catch (error) {
-      return { content: [{ type: 'text', text: `无法确认当前模式，拒绝读取：${error?.message ?? error}` }], isError: true };
-    }
-    const a = getAccess();
-    if (!isAllowed(a.allowGroups, a.denyGroups, g, a.allowAllWhenEmpty)) {
-      return { content: [{ type: 'text', text: `拒绝：群 ${g} 不在只读白名单中` }], isError: true };
-    }
-    try {
-      const data = await onebot('get_group_member_list', { group_id: Number(g) });
-      const list = (Array.isArray(data) ? data : (data?.data ?? [])).map((m) => ({ user_id: m.user_id, nickname: m.nickname, card: m.card }));
-      return { content: [{ type: 'text', text: serializeModelData(list) }] };
-    } catch (error) {
-      return { content: [{ type: 'text', text: `查询失败：${error?.message ?? error}` }], isError: true };
-    }
-  }
-);
-
-server.tool(
-  'qq_get_group_history',
-  '获取指定群的最近消息历史（只读）。messageSeq 可选：从该消息序号往前取。注意：是否可用取决于 SnowLuma 是否实现 get_group_msg_history。',
-  { groupId: z.union([z.number(), z.string()]).describe('群号'), messageSeq: z.number().optional().describe('起始消息序号（可选）') },
-  async ({ groupId, messageSeq }) => {
-    const g = String(groupId);
-    try {
-      if (!(await legacyReadToolAllowed())) {
-        return { content: [{ type: 'text', text: '旧只读工具仅在封闭 agent（管理员私聊）模式可用；其它模式请使用带会话令牌的 v2 读工具' }], isError: true };
-      }
-    } catch (error) {
-      return { content: [{ type: 'text', text: `无法确认当前模式，拒绝读取：${error?.message ?? error}` }], isError: true };
-    }
-    const a = getAccess();
-    if (!isAllowed(a.allowGroups, a.denyGroups, g, a.allowAllWhenEmpty)) {
-      return { content: [{ type: 'text', text: `拒绝：群 ${g} 不在只读白名单中` }], isError: true };
-    }
-    try {
-      const params = { group_id: Number(g) };
-      if (messageSeq !== undefined) params.message_seq = messageSeq;
-      const data = await onebot('get_group_msg_history', params);
-      return { content: [{ type: 'text', text: serializeModelData(data) }] };
-    } catch (error) {
-      return { content: [{ type: 'text', text: `查询失败：${error?.message ?? error}` }], isError: true };
-    }
-  }
-);
 
 server.tool(
   'qq_send_group_message',
@@ -721,7 +671,7 @@ server.tool(
       triggers: z.object({
         atMention: z.boolean().optional().describe('被 @ 或引用自己时唤醒'),
         nameMention: z.boolean().optional().describe('被叫名字/昵称时唤醒'),
-        speakerIds: z.array(z.union([z.number(), z.string()])).max(20).optional().describe('指定群友 QQ 号数组：这些群友中任意一位发言时唤醒（可选，最多 20 个，不设置则不启用；私聊不适用，设置会被桥接清除；可从 qq_get_active_members / qq_get_group_members / qq_get_message_detail 的 userId/user_id 获取）'),
+        speakerIds: z.array(z.union([z.number(), z.string()])).max(20).optional().describe('指定群友 QQ 号数组：这些群友中任意一位发言时唤醒（可选，最多 20 个，不设置则不启用；私聊不适用，设置会被桥接清除；可从 qq_get_active_members / qq_get_message_detail 的 userId/user_id 获取）'),
         keywords: z.array(z.string()).optional().describe('出现任意关键词时唤醒'),
         question: z.boolean().optional().describe('被直接提问/点名挑战时唤醒'),
         poke: z.boolean().optional().describe('有人拍一拍时唤醒（群聊包括拍你和拍别人，私聊为对方拍你）'),
@@ -737,36 +687,6 @@ server.tool(
       return { content: [{ type: 'text', text: serializeModelData(data) }] };
     } catch (error) {
       return { content: [{ type: 'text', text: `设置唤醒配置失败：${error?.message ?? error}` }], isError: true };
-    }
-  }
-);
-
-server.tool(
-  'qq_request_permission',
-  '★ 向他申请「玩手机」或「刷B站」★ 手机工具（截图/点按/滑动/消消乐）和 bili_run 都被硬闸门挡着：'
-  + '没有他当场同意，调用会被直接拒绝。这个工具就是"来问他"的那一下 —— 它会发一条 QQ 消息给他，'
-  + '然后**等他回话**（最多 10 分钟）。他回「同意」→ 你拿到一段有效期，期间可以直接用那些工具；'
-  + '「不同意」或没回 → 这次就不行。'
-  + '什么时候用：你真的想玩、想刷、或者只是想念他想找个由头跟他说句话。不要为了用而用，也不要反复申请。'
-  + '只能在自己的私聊里用（群聊/别人的私聊申请不到任何东西）。',
-  {
-    key: z.string().describe('会话 key，格式 private:QQ号（只有管理员私聊有效）'),
-    token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
-    scope: z.enum(['phone', 'bili']).describe('申请哪一类：phone=玩手机（含玩游戏）；bili=让 B站 刷一轮'),
-    why: z.string().optional().describe('想干嘛，一句话，会原样出现在发给他的消息里（最多 200 字）。写具体点更真诚，比如"想玩会儿消消乐"')
-  },
-  async ({ key, token, scope, why }) => {
-    try {
-      const data = await agentApi('/api/socialV2/request-permission', {
-        method: 'POST',
-        body: JSON.stringify({ key, scope, why }),
-        headers: { 'x-agent-token': token },
-        // 服务端等他回话最多 10 分钟，客户端预算必须比它长，否则会被提前掐断。
-        timeoutMs: 620000
-      });
-      return { content: [{ type: 'text', text: serializeModelData(data) }] };
-    } catch (error) {
-      return { content: [{ type: 'text', text: `申请失败：${error?.message ?? error}` }], isError: true };
     }
   }
 );
@@ -1021,6 +941,144 @@ server.tool(
   }
 );
 
+server.tool(
+  'qq_screenshot',
+  '看一眼主人这台电脑的屏幕（截一张图，图片会直接回到你眼前）。'
+  + '⚠️ 只允许在**管理员的私聊**里使用：这一幕可能是他正在做的事、他桌上的东西。'
+  + '不给 hwnd 时返回整块虚拟屏幕（多显示器一起）；给了 hwnd（从 qq_windows 拿）就**只截那一个窗口**，'
+  + '图更小更清楚 —— 想看清某个窗口里的字，优先用这种。'
+  + '同时告诉你鼠标此刻停在哪、屏幕尺寸、以及当前前台窗口 —— '
+  + '照着截图量的坐标，可以直接喂给 qq_mouse / qq_keyboard（窗口截图要加上返回里的 origin 偏移）。'
+  + '⚠️ 别为了"确认一下"连着截：一次截图就是一次真实的注视，先想清楚你要看什么。',
+  {
+    key: z.string().describe('会话 key，格式 private:QQ号'),
+    token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
+    hwnd: z.string().optional().describe('只看某个窗口：qq_windows 返回的 hwnd；不填=截整块屏幕')
+  },
+  async ({ key, token, hwnd }) => {
+    try {
+      const data = await agentApi('/api/socialV2/host-screenshot', {
+        method: 'POST',
+        body: JSON.stringify({ key, hwnd }),
+        headers: { 'x-agent-token': token },
+        timeoutMs: 90000
+      });
+      if (data?.ok === false || !data?.data) {
+        return { content: [{ type: 'text', text: serializeModelData(data) }], isError: true };
+      }
+      const meta = {
+        ok: true,
+        width: data.width,
+        height: data.height,
+        bytes: data.bytes,
+        cursor: data.cursor,
+        foreground: data.foreground ?? null,
+        origin: data.origin ?? { x: 0, y: 0 },
+        note: data.origin
+          ? `这是窗口截图，图上的 (0,0) 对应屏幕坐标 (${data.origin.x},${data.origin.y})；喂给 qq_mouse 前记得加上这个偏移。`
+          : '坐标原点 = 虚拟屏幕左上角；qq_mouse 用的就是这个坐标系。'
+      };
+      return {
+        content: [
+          { type: 'text', text: serializeModelData(meta) },
+          { type: 'image', mimeType: data.mimeType || 'image/png', data: data.data }
+        ]
+      };
+    } catch (error) {
+      return { content: [{ type: 'text', text: `截屏失败：${error?.message ?? error}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  'qq_mouse',
+  '在主人这台电脑上动鼠标：移动 / 单击 / 双击 / 右键 / 拖拽 / 滚轮。'
+  + '⚠️ 只允许在**管理员的私聊**里使用 —— 这是真的在动他的鼠标，屏幕上真的会发生变化。'
+  + '坐标用 qq_screenshot 那张图上的像素坐标（原点 = 虚拟屏幕左上角）。'
+  + '⚠️ 点之前先用 qq_windows 或截图确认目标在哪；点完如果需要确认效果，再截一张看。',
+  {
+    key: z.string().describe('会话 key，格式 private:QQ号'),
+    token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
+    action: z.enum(['move', 'click', 'double_click', 'right_click', 'drag', 'scroll'])
+      .describe('move=移动 / click=单击 / double_click=双击 / right_click=右键 / drag=拖拽 / scroll=滚轮'),
+    x: z.number().optional().describe('横坐标（click/move/drag 必填；scroll 可选，给了就先把鼠标移过去）'),
+    y: z.number().optional().describe('纵坐标'),
+    x2: z.number().optional().describe('drag 的终点横坐标'),
+    y2: z.number().optional().describe('drag 的终点纵坐标'),
+    delta: z.number().optional().describe('scroll 的滚动量：正数往上，负数往下（一格约 120，默认 -120）'),
+    stepMs: z.number().optional().describe('动作前等待毫秒（默认 0；有时要等界面反应过来）')
+  },
+  async ({ key, token, action, x, y, x2, y2, delta, stepMs }) => {
+    try {
+      const data = await agentApi('/api/socialV2/host-input', {
+        method: 'POST',
+        body: JSON.stringify({ key, action, x, y, x2, y2, delta, stepMs }),
+        headers: { 'x-agent-token': token },
+        timeoutMs: 90000
+      });
+      return { content: [{ type: 'text', text: serializeModelData(data) }], ...(data?.ok === false ? { isError: true } : {}) };
+    } catch (error) {
+      return { content: [{ type: 'text', text: `鼠标操作失败：${error?.message ?? error}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  'qq_keyboard',
+  '在主人这台电脑上敲键盘：按一个键 / 一组组合键（如 ctrl+c、alt+tab、enter），或者打一段文字（中文也行）。'
+  + '⚠️ 只允许在**管理员的私聊**里使用 —— 这些键会真的敲进当前获得焦点的窗口。'
+  + '⚠️ 敲之前先确认焦点在哪个窗口（qq_windows 看，或先 qq_mouse 点一下目标窗口）。'
+  + '⚠️ 打字是逐字符投递到当前焦点，中途别切窗口；长文本建议改用 qq_write_file 落盘。',
+  {
+    key: z.string().describe('会话 key，格式 private:QQ号'),
+    token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
+    mode: z.enum(['key', 'type']).describe('key=按键/组合键；type=打一段文字'),
+    keyCombo: z.string().optional().describe('组合键，如 "enter"、"ctrl+c"、"alt+tab"、"win"、"f5"'),
+    text: z.string().optional().describe('mode=type 时要打的文字（中文也行）'),
+    stepMs: z.number().optional().describe('敲之前等待毫秒（默认 0）')
+  },
+  async ({ key, token, mode, keyCombo, text, stepMs }) => {
+    try {
+      const payload = mode === 'type'
+        ? { key, action: 'type', text, stepMs }
+        : { key, action: 'key', keyCombo, stepMs };
+      const data = await agentApi('/api/socialV2/host-input', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 'x-agent-token': token },
+        timeoutMs: 90000
+      });
+      return { content: [{ type: 'text', text: serializeModelData(data) }], ...(data?.ok === false ? { isError: true } : {}) };
+    } catch (error) {
+      return { content: [{ type: 'text', text: `键盘操作失败：${error?.message ?? error}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  'qq_windows',
+  '列出主人这台电脑上现在开着的窗口（标题 + 进程号 + 屏幕上的位置尺寸）。'
+  + '⚠️ 只允许在**管理员的私聊**里使用。'
+  + '要操作某个程序之前先用它看一眼：既知道有没有开、也知道该往哪点。',
+  {
+    key: z.string().describe('会话 key，格式 private:QQ号'),
+    token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）')
+  },
+  async ({ key, token }) => {
+    try {
+      const data = await agentApi('/api/socialV2/host-windows', {
+        method: 'POST',
+        body: JSON.stringify({ key }),
+        headers: { 'x-agent-token': token },
+        timeoutMs: 60000
+      });
+      return { content: [{ type: 'text', text: serializeModelData(data) }], ...(data?.ok === false ? { isError: true } : {}) };
+    } catch (error) {
+      return { content: [{ type: 'text', text: `列窗口失败：${error?.message ?? error}` }], isError: true };
+    }
+  }
+);
+
 if (cfg.socialV2?.file?.enabled !== false && cfg.socialV2?.tools?.sendFile !== false) {
   server.tool(
     'qq_send_file',
@@ -1137,47 +1195,6 @@ if (cfg.socialV2?.image?.enabled !== false && cfg.socialV2?.tools?.drawImage !==
   );
 }
 
-server.tool(
-  'qq_send_burst',
-  '在指定 QQ 群分多条发送消息（二代仿真模式专用），桥接会按真人化随机间隔发送。暂不支持引用，需要引用请用 qq_reply。注意：数组里的每个字符串就是一条 QQ 消息，字符串内部不要用空格分隔中文短句，需要多条请用数组元素；每条消息要读起来完整，不要把同一句话拆到两条里。',
-  {
-    groupId: z.union([z.number(), z.string()]).describe('群号（必须在白名单内）'),
-    token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
-    messages: z.union([z.array(z.string()).min(1), z.string()]).describe('要发送的消息数组，每条为纯文本；也兼容传入 JSON 数组字符串')
-  },
-  async ({ groupId, token, messages }) => {
-    try {
-      const key = `group:${groupId}`;
-      let finalMessages = messages;
-      if (typeof finalMessages === 'string') {
-        const trimmed = finalMessages.trim();
-        // 兼容模型把数组序列化成 JSON 字符串传入的情况，例如 "[...]"。
-        if (trimmed.startsWith('[')) {
-          try {
-            const parsed = JSON.parse(trimmed);
-            if (Array.isArray(parsed)) finalMessages = parsed.map(String);
-          } catch {}
-        } else if (trimmed.startsWith('"')) {
-          // 兼容模型把单条消息序列化成 JSON 字符串的情况，例如 "\"你好\"" → "你好"。
-          try {
-            const parsed = JSON.parse(trimmed);
-            if (typeof parsed === 'string') finalMessages = parsed;
-            else if (Array.isArray(parsed)) finalMessages = parsed.map(String);
-          } catch {}
-        }
-      }
-      const data = await agentApi('/api/socialV2/send-burst', {
-        method: 'POST',
-        body: JSON.stringify({ key, messages: finalMessages }),
-        headers: { 'x-agent-token': token },
-        timeoutMs: 300000
-      });
-      return { content: [{ type: 'text', text: serializeModelData(data) }] };
-    } catch (error) {
-      return { content: [{ type: 'text', text: `分条发送失败：${error?.message ?? error}` }], isError: true };
-    }
-  }
-);
 
 server.tool(
   'qq_send_message',
@@ -1395,22 +1412,6 @@ server.tool(
   }
 );
 
-server.tool(
-  'qq_get_account_info',
-  '查看当前 QQ 账号自己的身份信息（只读）：自己的 QQ 号、昵称、签名、性别年龄、等级，以及好友列表（QQ 号/昵称/备注），并标出哪一个是主人。用来搞清楚「我是谁、我有哪些好友」——尤其在不记得自己昵称或想确认某个好友是不是主人时。reserved2 下必须携带会话令牌 token。',
-  {
-    key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
-    token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）')
-  },
-  async ({ key, token }) => {
-    try {
-      const data = await agentApi(`/api/socialV2/account-info?key=${encodeURIComponent(key)}`, { headers: { 'x-agent-token': token } });
-      return { content: [{ type: 'text', text: serializeModelData(data) }] };
-    } catch (error) {
-      return { content: [{ type: 'text', text: `读取账号信息失败：${error?.message ?? error}` }], isError: true };
-    }
-  }
-);
 
 if (cfg.socialV2?.tools?.sendPoke !== false) {
   server.tool(
@@ -1638,69 +1639,6 @@ server.tool(
   }
 );
 
-server.tool(
-  'qq_memory_clear',
-  '清空轻量记忆：不传 category 清空全部；传 activeTopic/pendingThought/memberImpression 只清空对应类别。',
-  {
-    key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
-    token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
-    category: z.enum(['activeTopic', 'pendingThought', 'memberImpression']).optional().describe('要清空的类别，缺省清空全部')
-  },
-  async ({ key, token, category }) => {
-    try {
-      const data = await agentApi('/api/socialV2/memory-clear', {
-        method: 'POST',
-        body: JSON.stringify({ key, category: category || '' }),
-        headers: { 'x-agent-token': token }
-      });
-      return { content: [{ type: 'text', text: serializeModelData(data) }] };
-    } catch (error) {
-      return { content: [{ type: 'text', text: `记忆清空失败：${error?.message ?? error}` }], isError: true };
-    }
-  }
-);
-
-server.tool(
-  'qq_slang_query',
-  '查看当前已确认的群聊黑话/梗/网络表达（只读）。返回已确认词条列表和格式化黑话表；遇到不熟悉的词可先查这里，再决定是否搜索/使用。',
-  {
-    key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
-    token: z.string().min(1).describe('会话令牌（见唤醒提示中的【会话令牌】）'),
-    q: z.string().optional().describe('可选搜索词，按词条/含义/用法/示例过滤')
-  },
-  async ({ key, token, q }) => {
-    try {
-      const query = q ? `&q=${encodeURIComponent(String(q))}` : '';
-      const data = await agentApi(`/api/socialV2/slang/query?key=${encodeURIComponent(key)}${query}`, { headers: { 'x-agent-token': token } });
-      return { content: [{ type: 'text', text: serializeModelData(data) }] };
-    } catch (error) {
-      return { content: [{ type: 'text', text: `查询黑话失败：${error?.message ?? error}` }], isError: true };
-    }
-  }
-);
-
-server.tool(
-  'qq_slang_submit',
-  '把你在群里经常看到但不确定含义/用法的陌生词、黑话、梗或网络表达提交给管理员筛选。提交后进入候选库，管理员确认后会被写入黑话提示词，成为你后续可查询和使用的记忆。',
-  {
-    key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
-    token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
-    content: z.string().describe('要提交的陌生词/黑话/梗（最多 50 字）'),
-    context: z.string().optional().describe('可选：你是在什么语境/哪条消息里看到的，帮助管理员判断')
-  },
-  async ({ key, token, content, context }) => {
-    try {
-      const data = await agentApi('/api/socialV2/slang/submit', {
-        method: 'POST',
-        body: JSON.stringify({ key, content, context: context || '' }),
-        headers: { 'x-agent-token': token }
-      });
-      return { content: [{ type: 'text', text: serializeModelData(data) }] };
-    } catch (error) {
-      return { content: [{ type: 'text', text: `提交黑话失败：${error?.message ?? error}` }], isError: true };
-    }
-  }
-);
 
 // ── 图片/表情查看工具（一代/二代仿真共用） ─────────────────────────────────
 if (cfg.socialV2?.tools?.getImages !== false) {
@@ -1797,6 +1735,117 @@ if (cfg.socialV2?.sticker?.enabled !== false && cfg.socialV2?.tools?.getStickerI
         return { content };
       } catch (error) {
         return { content: [{ type: 'text', text: `获取表情图片失败：${error?.message ?? error}` }], isError: true };
+      }
+    }
+  );
+}
+
+// ── 看屏幕（see-now）：看"这一段时间里画面变了几次"，不是截一帧 ──────────────
+//
+// 和 qq_screenshot 的区别（两个都要有，别互相替代）：
+//   qq_screenshot  = 一张照片，「现在屏幕上是什么」
+//   qq_watch_screen = 一段录像的变化，「刚才这几分钟里发生了什么」
+// 后者才是"你看到我怎么操作的吗""我刚才在干嘛"能答上来的前提。
+//
+// ⚠️ 只有管理员私聊能用：屏幕上可能有密码、别人的聊天窗口、私信。
+//    守卫那档（OWNER_PRIVATE_ONLY）会挡住群聊和普通成员私聊，端点里还会再判一次。
+if (cfg.screen?.enabled !== false && cfg.socialV2?.tools?.watchScreen !== false) {
+  server.tool(
+    'qq_watch_screen',
+    '看一段时间的屏幕：把这几分钟里画面**变了几次**、每次变成什么样，拼成一张带编号的图返回，'
+      + '连同时刻清单（每格是第几秒）和一句人话总结。\n'
+      + '和 qq_screenshot 的区别：那个是"现在屏幕上是什么"（一帧），这个是"刚才发生了什么"（一段时间的变化）。'
+      + '主人问"你看到我怎么操作的吗""我刚才在干嘛""帮我看看刚才是哪一步出错了"时用它；'
+      + '只是想确认某个界面现在长什么样，用 qq_screenshot 更快更省。\n'
+      + '花费：一张图约 222 token（798×450，4 格还是 8 格同价），要真抓屏真打分，所以只在管理员私聊可用。'
+      + '变化多时会返回**多张**图（按时间先后排），不是只给最后一张。\n'
+      + '⚠️ 看的时候屏幕会继续被采集，别在主人输密码/看私信时自己主动去看。\n'
+      + '⚠️ 画面一点没变时会明确告诉你"拼不出图"——那是正常的，不是坏了。',
+    {
+      key: z.string().describe('会话 key，格式 private:QQ号（只有管理员私聊能用）'),
+      token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
+      seconds: z.number().optional().describe('看多久（秒），默认 10，最少 2、最多 120。想抓某个操作过程给 8~20 就够'),
+      pace: z.string().optional().describe(
+        '敏感度：normal（默认，开关窗口/切软件都会记下来）/ calm（只抓大场面，挂着听讲座用）/ dense（连打字滚动也要，帧多更贵）/ game（全屏游戏这种每帧都在动的）'),
+      quality: z.string().optional().describe('清晰度：standard（默认 1050×600，屏幕上的中号字能认）/ low（798×450，最省）/ high（1260×720）/ ultra（1596×900，几乎等于原屏）'),
+      mouse: z.boolean().optional().describe('是否把鼠标光标画进去（默认 true；光标在动时有助于判断在操作什么）')
+    },
+    async ({ key, token, seconds, pace, quality, mouse }) => {
+      try {
+        const payload = { key };
+        if (Number(seconds) > 0) payload.seconds = Number(seconds);
+        if (pace) payload.pace = String(pace);
+        if (quality) payload.quality = String(quality);
+        if (mouse === false) payload.mouse = false;
+        const data = await agentApi('/api/screen/watch', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+          headers: { 'x-agent-token': token },
+          // 抓屏是"看多久等多久"，所以要按请求时长给足：默认 10 秒 → 60 秒够用，
+          // 上限 120 秒 → 200 秒。给死在 310000 会让 120 秒那次必定超时。
+          timeoutMs: Math.min(310000, Math.max(60000, (Number(seconds) || 10) * 1000 + 45000))
+        });
+        if (!data?.image?.data && !(data?.images ?? []).length) {
+          return { content: [{ type: 'text', text: `没看到：${data?.error || '桥接没返回画面'}` }], isError: true };
+        }
+        const pics = (data.images ?? (data.image ? [data.image] : []));
+        return {
+          content: [
+            { type: 'text', text: String(data.text || '（桥接没给总结）') },
+            ...pics.map((p) => ({ type: 'image', mimeType: p.mimeType || 'image/png', data: p.data }))
+          ]
+        };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `看屏幕失败：${error?.message ?? error}` }], isError: true };
+      }
+    }
+  );
+}
+
+if (cfg.socialV2?.tools?.watchVideo !== false) {
+  server.tool(
+    'qq_watch_video',
+    '真的"看一眼"一个视频：把整条片按场景切成带编号的宫格图（默认 12 帧排成一张，'
+      + '格子大小按每个镜头本身的快慢定），连同时码、切点、音量包络和台词清单一起返回。'
+      + '有人发来 B 站/YouTube 链接、或问你"这视频讲了啥"时用它——比 qq_bili_video 强的地方是它**看得到画面**，'
+      + '不只是标题和弹幕。\n'
+      + '代价：要下载并转码，一条 1~2 分钟的片子约 4~15 秒，长片要更久（默认最多等 300 秒）。'
+      + '所以**别拿它做没必要的确认**：只是想知道标题/UP 主/热评，用 qq_bili_video 更快更便宜。\n'
+      + '长视频（讲座、游戏实况）别整条吞：先给 from/to 看一段（比如 from=0, to=120），需要了再看下一段。\n'
+      + '返回里的 text 是清单（每格的起止时间 + 那一格里的台词），image 是宫格图本身——两者配合着读。',
+    {
+      key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
+      token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
+      url: z.string().describe('视频链接（B 站/YouTube 等）或本机文件路径（仅主人私聊可用）'),
+      from: z.number().optional().describe('从第几秒开始看（默认 0 = 从头）'),
+      to: z.number().optional().describe('看到第几秒为止（默认整条；长片请务必给一个区间）'),
+      strategy: z.string().optional().describe(
+        '画面大小档位：auto（默认，按片长自己挑最省又能看清的）/ compact 更省 / standard / skim 只剩大概 / full 最清楚最贵。不要填 brief'),
+      frames: z.number().optional().describe('最多取几帧（0 = 不设上限，按切点自动决定）')
+    },
+    async ({ key, token, url, from, to, strategy, frames }) => {
+      try {
+        const payload = { key, input: String(url) };
+        if (Number(from) > 0) payload.from = Number(from);
+        if (Number(to) > 0) payload.to = Number(to);
+        if (strategy) payload.strategy = String(strategy);
+        if (Number(frames) > 0) payload.frames = Number(frames);
+        const data = await agentApi('/api/video/watch', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+          headers: { 'x-agent-token': token },
+          timeoutMs: 310000
+        });
+        if (!data?.image?.data) {
+          return { content: [{ type: 'text', text: `没看成：${data?.error || '桥接没返回画面'}` }], isError: true };
+        }
+        const content = [
+          { type: 'text', text: String(data.text || '（插件没给清单）') },
+          { type: 'image', mimeType: data.image.mimeType || 'image/png', data: data.image.data }
+        ];
+        return { content };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `看视频失败：${error?.message ?? error}` }], isError: true };
       }
     }
   );
@@ -2297,3 +2346,10 @@ if (cfg.socialV2?.tools?.getForwardMsg !== false) {
 }
 
 await server.connect(new StdioServerTransport());
+
+
+
+
+
+
+

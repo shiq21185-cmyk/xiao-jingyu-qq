@@ -7,7 +7,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { NodeApiClient, unwrap, createTurnCollector } from '../../src/dsh-client.js';
-import { injectIndexIntoText, selectIndexItems, parseItemLine } from './memory-index.mjs';
+import { injectIndexIntoText, selectIndexItems, parseItemLine, INDEX_RECENT_DAYS } from './memory-index.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -15,6 +15,15 @@ const STATE_DIR = path.join(ROOT, 'state');
 const ROLES_DIR = path.join(ROOT, 'roles');
 const DAILY_MEMORY_FILE = path.join(STATE_DIR, 'daily-memory.json');
 const CONSOLE_TOKEN_FILE = path.join(STATE_DIR, 'console-token');
+// token 账本（bridge.js 的 createTokenLedger 写）。这里只用来数「这个会话跑了几个回合」。
+// 行格式见 src/token-ledger.js 顶部：{"k":"turn", t, sid, key, turn, step, ...}。
+const TOKEN_USAGE_FILE = path.join(STATE_DIR, 'token-usage.jsonl');
+// 插件自己的日志。为什么需要落盘：启动器是用 `-WindowStyle Hidden` 把它拉起来的，
+// stdout 没有重定向 —— 那些 `[rollover] ...` 全落进一个看不见的隐藏控制台。
+// 以前无所谓（整理一天一次、成了就成），但现在它还会**自动轮换会话上下文**，
+// 不落盘就没人看得见"到底轮换过几次、为什么没轮换"。超过上限就转存一份 .1。
+const ROLLOVER_LOG_FILE = path.join(STATE_DIR, 'rollover.log');
+const ROLLOVER_LOG_MAX_BYTES = 2 * 1024 * 1024;
 // 通话逐字稿（每通电话一份 JSON，由 tools/call/call_sidecar.py 在挂断时写入）。
 // 为什么要有这一层：QQ 语音通话**不产生任何 QQ 消息**，messages.db 里没有它的影子，
 // 所以光读数据库的整理脚本永远记不住电话里说过什么（主人 2026-10-25 明确要求补上）。
@@ -127,9 +136,32 @@ function clipDetail(text, limit = MAX_ITEM_DETAIL_CHARS) {
 // 与 src/bridge.js 的 ROLE_INJECT_MAX_CHARS_DEFAULT 保持一致（那边是权威值）。
 // 两处漂移的后果：rollover 按大的填预算、桥接按小的截断，索引最后几条被静默砍掉。
 // scripts/test-role-card.mjs 会比对这两个数。
-const ROLE_INJECT_MAX_CHARS_FALLBACK = 6000;
+const ROLE_INJECT_MAX_CHARS_FALLBACK = 9000;
 
-const log = (...a) => console.log(`[rollover] ${new Date().toISOString().slice(0, 19).replace('T', ' ')}`, ...a);
+function fmtLogArg(a) {
+  if (typeof a === 'string') return a;
+  if (a instanceof Error) return a.stack || a.message;
+  try { return JSON.stringify(a); } catch { return String(a); }
+}
+// 日志时间戳必须用**本地时间**：这里以前写的是 `toISOString()`，那玩意儿是 UTC，
+// 在 UTC+8 上比真实时间早 8 小时，而且不带任何时区标注 —— 排查"昨晚记忆什么时候
+// 整理的"会直接错 8 小时（2026-11-07 实测：文件 mtime 16:02，内容却写 08:02）。
+// 注意下面已有 localDateStr()（同样按本地时间），这里对齐它的口径。
+function localStamp(d = new Date()) {
+  const y = d.getFullYear();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${y}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+const log = (...a) => {
+  const stamp = `[rollover] ${localStamp()}`;
+  console.log(stamp, ...a);
+  try {
+    if (fs.existsSync(ROLLOVER_LOG_FILE) && fs.statSync(ROLLOVER_LOG_FILE).size > ROLLOVER_LOG_MAX_BYTES) {
+      fs.renameSync(ROLLOVER_LOG_FILE, ROLLOVER_LOG_FILE + '.1');
+    }
+    fs.appendFileSync(ROLLOVER_LOG_FILE, [stamp, ...a.map(fmtLogArg)].join(' ') + '\n', 'utf8');
+  } catch { /* 落盘失败不该影响整理本身 */ }
+};
 
 function readConfig() {
   return JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
@@ -176,7 +208,7 @@ function dayRangeSeconds(dateStr) {
  */
 function humanizeCq(text) {
   return String(text ?? '')
-    // [CQ:at,qq=123456789] → @QQ号（身份只认号）
+    // [CQ:at,qq=100000004] → @QQ号（身份只认号）
     .replace(/\[CQ:at,qq=([^,\]]+)[^\]]*\]/g, (_m, qq) => `@${qq}`)
     .replace(/\[CQ:image,[^\]]*\]/g, '[图片]')
     .replace(/\[CQ:record,[^\]]*\]/g, '[语音]')
@@ -507,7 +539,7 @@ function injectIndexIntoRole(mem, config = null) {
   // 反推的话索引会自动让出空间，永远不会把整块挤掉。
   // 注意这不是删除：daily-memory.json 仍保留全量，索引只是"最近的事"，
   // 更早的条目通过归档指针（含关键词）告诉她用 qq_memory_query 检索。
-  // 兜底值必须与 src/bridge.js 的 ROLE_INJECT_MAX_CHARS_DEFAULT 一致（都是 6000）。
+  // 兜底值必须与 src/bridge.js 的 ROLE_INJECT_MAX_CHARS_DEFAULT 一致（都是 9000）。
   // 曾经这里是 10000 —— 只在 config.json 缺 role 段时才有偏差，而那时桥接按 6000
   // 截断、rollover 按 10000 填预算，结果就是「rollover 说塞得下、桥接一截把索引尾巴砍掉」。
   const injectMax = Number(cfg?.role?.maxInjectChars) || ROLE_INJECT_MAX_CHARS_FALLBACK;
@@ -521,6 +553,9 @@ function injectIndexIntoRole(mem, config = null) {
     archivedCount: picked.archivedCount,
     keywords: picked.keywords,
     keptDays: picked.keptDays,
+    // 窗口大小要一起传：标题里「保留 N 天」说的是配置，`keptDays` 说的是"实际有几天
+    // 有记录"。只给后者会出现"设了 2 天却显示最近 1 天"的误导（2026-11-03 主人问过）。
+    windowDays: INDEX_RECENT_DAYS,
     pinnedCount: picked.pinnedCount
   });
 
@@ -563,6 +598,128 @@ async function resetSession(config, key) {
   if (resp.status === 404) { log('会话不存在，跳过归档:', key); return true; }
   log('归档失败:', resp.status, JSON.stringify(json).slice(0, 200));
   return false;
+}
+
+// ── 会话回合上限（2026-10-30 加）────────────────────────────────────────────
+//
+// 为什么要有它：DSH 的会话上下文每回合都在长 —— 每个回合都要把**全部历史**重发
+// 一遍。于是单个会话的累计输入成本不是 O(回合)，是 **O(回合²)**。实测：会话
+// 45f4b7cb 跑了 98 个回合、平均每回合只有 1.7 步（一点都不啰嗦），却烧掉
+// 19,261,420 token —— 贵的不是哪一步，是"她记得太多"。
+// 按 292M → 213M 的拟合，每会话最多 12 回合可省掉约 27% 的总输入。
+//
+// 为什么放在这里而不是 bridge.js：轮换的**唯一动作**就是 resetSession()
+// （同一个 /api/session/reset，清上下文但保留记忆）；这个文件本来就有它。
+// bridge.js 里还有主人未提交的改动，不碰。
+//
+// 为什么用账本里的 max(turn) 而不是数行数：turn 是会话内自增序号（从 1 起），
+// 数行数只能得到"读到的这段窗口里出现过几个"，而 max 即使只读文件尾部也照样准确
+// （尾部一定包含最新那个回合）。窗口截断只会让计数偏小 ⇒ 顶多晚轮换一次，绝不会
+// 提前把她的上下文抽走。
+const SESSIONS_API_IDLE_MS = 30 * 1000;   // 问桥接要会话列表的超时
+const LEDGER_TAIL_BYTES = 6 * 1024 * 1024; // 账本只读尾部这么多（当前全量 ~1MB）
+const DEFAULT_TURN_CAP = 12;               // 每会话最多几个回合
+const DEFAULT_IDLE_MINUTES = 5;            // 距最后一次调用至少安静这么久才动手
+
+function sessionRolloverConfig(config) {
+  const raw = config?.sessionRollover ?? {};
+  const cap = Number(raw.turnCap);
+  const idle = Number(raw.idleMinutes);
+  return {
+    turnCap: Number.isFinite(cap) && cap > 0 ? Math.floor(cap) : DEFAULT_TURN_CAP,
+    idleMs: (Number.isFinite(idle) && idle >= 0 ? idle : DEFAULT_IDLE_MINUTES) * 60 * 1000
+  };
+}
+
+/**
+ * 向桥接要**实时**的 key → sessionId 映射。
+ * 为什么不用 state/sessions.json：那是一份磁盘快照，桥接内存里的才是准的
+ * （而且这条路径本来就要桥接在线才能轮换，读不到就等于这次不动手）。
+ */
+async function listLiveSessions(config) {
+  const consoleToken = readConsoleToken();
+  const base = `http://127.0.0.1:${config.consolePort || 3100}`;
+  try {
+    const resp = await fetch(`${base}/api/sessions`, {
+      headers: { 'x-console-token': consoleToken },
+      signal: AbortSignal.timeout(SESSIONS_API_IDLE_MS)
+    });
+    if (!resp.ok) { log('读取会话列表失败:', resp.status); return null; }
+    const json = await resp.json();
+    const list = Array.isArray(json?.sessions) ? json.sessions : [];
+    return list.filter((s) => s && typeof s.key === 'string' && typeof s.sessionId === 'string');
+  } catch (e) {
+    log('读取会话列表失败（桥接可能未在线）:', e?.message ?? e);
+    return null;
+  }
+}
+
+/** 从 token 账本尾部读出每个会话的「最大回合号」和「最后一次调用时间」。 */
+function readSessionTurnStats(sessionIds) {
+  const want = new Set(sessionIds);
+  const out = new Map();
+  let text;
+  try {
+    const fd = fs.openSync(TOKEN_USAGE_FILE, 'r');
+    try {
+      const size = fs.fstatSync(fd).size;
+      const start = size > LEDGER_TAIL_BYTES ? size - LEDGER_TAIL_BYTES : 0;
+      const len = size - start;
+      const buf = Buffer.allocUnsafe(len);
+      fs.readSync(fd, buf, 0, len, start);
+      text = buf.toString('utf8');
+      // 窗口是从文件中间切的，第一行多半是半截 —— 丢掉它。
+      if (start > 0) {
+        const nl = text.indexOf('\n');
+        text = nl === -1 ? '' : text.slice(nl + 1);
+      }
+    } finally { fs.closeSync(fd); }
+  } catch { return out; }
+  for (const line of text.split('\n')) {
+    if (!line) continue;
+    let o; try { o = JSON.parse(line); } catch { continue; }
+    if (o.k !== 'turn' || !want.has(o.sid)) continue;
+    const e = out.get(o.sid) ?? { turn: 0, lastAt: 0 };
+    if (Number.isFinite(o.turn) && o.turn > e.turn) e.turn = o.turn;
+    if (Number.isFinite(o.t) && o.t > e.lastAt) e.lastAt = o.t;
+    out.set(o.sid, e);
+  }
+  return out;
+}
+
+/**
+ * 检查每个活跃会话跑了多少回合，到上限且**已经安静下来**就轮换。
+ *
+ * 为什么要等安静：把一个正在聊的会话从她脚下抽走，她会当场忘掉刚说的话 ——
+ * 那比多花点钱难受得多。轮换只清上下文、不动记忆（记忆索引、轻量记忆、
+ * 约定都还在），所以安静之后轮换她几乎察觉不到。
+ */
+async function enforceTurnCap(config, { dryRun = false } = {}) {
+  const { turnCap, idleMs } = sessionRolloverConfig(config);
+  const live = await listLiveSessions(config);
+  if (!live) return;
+  if (!live.length) { if (dryRun) log('[dry] 当前没有活跃会话'); return; }
+  const stats = readSessionTurnStats(live.map((s) => s.sessionId));
+  const now = Date.now();
+  for (const { key, sessionId } of live) {
+    const st = stats.get(sessionId) ?? { turn: 0, lastAt: 0 };
+    const idleFor = st.lastAt ? now - st.lastAt : Infinity;
+    const idleMin = Number.isFinite(idleFor) ? Math.round(idleFor / 60000) : null;
+    if (dryRun) {
+      const would = st.turn >= turnCap && idleFor >= idleMs;
+      log(`[dry] ${key} 回合 ${st.turn}/${turnCap}，` +
+        (idleMin === null ? '账本里没有调用记录' : `已安静 ${idleMin} 分钟（门槛 ${Math.round(idleMs / 60000)}）`) +
+        ` → ${would ? '会轮换' : '保持'}`);
+      continue;
+    }
+    if (st.turn < turnCap) continue;
+    if (idleFor < idleMs) {
+      log(`会话 ${key} 已 ${st.turn} 回合（上限 ${turnCap}），但 ${Math.round(idleFor / 60000)} 分钟前还在说话，等她安静再轮换`);
+      continue;
+    }
+    log(`会话 ${key} 已 ${st.turn} 回合（上限 ${turnCap}）、已安静 ${Math.round(idleFor / 60000)} 分钟 → 轮换上下文（记忆保留）`);
+    await resetSession(config, key);
+  }
 }
 
 /**
@@ -815,6 +972,9 @@ async function main() {
   log('qq-memory-rollover 启动（每 30 分钟检查一次）');
   while (true) {
     try { await runOnce(config); } catch (e) { log('本轮出错:', e?.message ?? e); }
+    // 回合上限跟「每日整理」是两件独立的事，所以放在 runOnce **外面**：
+    // runOnce 在「昨日已整理」时第一行就 return，挂进去会被一起跳过。
+    try { await enforceTurnCap(config); } catch (e) { log('回合上限检查出错:', e?.message ?? e); }
     await new Promise((r) => setTimeout(r, SLEEP_MS));
   }
 }
@@ -864,6 +1024,15 @@ if (process.argv.includes('--once')) {
     }
   }
   process.exit(0);
+} else if (process.argv.includes('--cap-check')) {
+  // 只看不动：先看清"现在几个会话、各跑了多少回合、离上限还有多远"，
+  // 再决定要不要真的让它开始轮换。dryRun 不调 /api/session/reset。
+  const cfg = readConfig();
+  const { turnCap, idleMs } = sessionRolloverConfig(cfg);
+  log(`回合上限：${turnCap} 回合/会话，闲置门槛 ${Math.round(idleMs / 60000)} 分钟（config.json 的 sessionRollover 可调）`);
+  enforceTurnCap(cfg, { dryRun: true })
+    .then(() => { log('--cap-check 完成（未做任何轮换）'); process.exit(0); })
+    .catch((e) => { log('--cap-check 失败:', e?.message ?? e); process.exit(1); });
 } else {
   main().catch((e) => { log('致命错误:', e?.message ?? e); process.exit(1); });
 }

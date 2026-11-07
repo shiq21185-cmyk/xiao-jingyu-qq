@@ -14,6 +14,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+// 窗口天数必须和记忆索引同源（2026-11-03 主人把索引窗口收成 2 天）。
+// pickRecallRows 的默认值引用 INDEX_RECENT_DAYS，下面摘源码求值时得把它一起注进去。
+import { INDEX_RECENT_DAYS } from '../plugins/qq-memory-rollover/memory-index.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = fs.readFileSync(path.join(ROOT, 'src/bridge.js'), 'utf8');
@@ -34,6 +37,8 @@ function extractFn(src, name) {
 
 const { recallIdOf, pickRecallRows, renderRecallBlock } = new Function(
   [
+    // 常量先进函数体（new Function 的参数位只能写形参名，塞 const 会语法错误）
+    'const INDEX_RECENT_DAYS = ' + Number(INDEX_RECENT_DAYS) + ';',
     extractFn(SRC, 'recallIdOf'),
     extractFn(SRC, 'pickRecallRows'),
     extractFn(SRC, 'renderRecallBlock'),

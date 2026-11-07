@@ -188,20 +188,26 @@ test('legacy read tools fail closed unless the bridge reports closed-agent', asy
   assert.notEqual(result.isError, true, 'closed-agent 下应放行');
 });
 
-test('denied legacy group reads never reveal the group allowlist', async () => {
+// ⚠️ 2026-11-06：qq_get_group_members / qq_get_group_history 已随「精简工具面」下线
+//    （主人 m05483：群成员名单会把群友 QQ 号全读出来、群历史是旧工具），
+//    这条回归失去了被测对象。改成守着**仍然存在**的那条边界：
+//    给一个不在白名单里的群号发消息，桥接必须拒绝，且错误文案不得回显白名单内容。
+test('denied group targets never reveal the group allowlist', async () => {
   const fixtureConfig = { allow: { groups: ['111111', '222222'] } };
   for (const mode of ['reserved2', 'closed-agent']) {
     const calls = [];
     const callTool = loadSnowlumaTools(async (url) => {
       calls.push(String(url));
       if (String(url).includes('/api/status')) return Response.json({ mode });
-      assert.fail('denied group read must not call OneBot');
+      if (String(url).includes('/api/send/group')) {
+        return Response.json({ ok: false, error: '目标群不在白名单内' }, { status: 403 });
+      }
+      assert.fail('denied group send must not reach OneBot');
     }, fixtureConfig);
-    for (const name of ['qq_get_group_members', 'qq_get_group_history']) {
-      const result = await callTool(name, { groupId: '999999' });
-      assert.equal(result.isError, true, `${name} in ${mode} must fail`);
-      assert.doesNotMatch(result.content[0].text, /111111|222222/);
+    const result = await callTool('qq_send_group_message', { groupId: '999999', message: 'x' });
+    assert.equal(result.isError, true, `group send in ${mode} must fail`);
+    for (const text of (result.content ?? []).map((c) => String(c.text ?? ''))) {
+      assert.doesNotMatch(text, /111111|222222/, '拒绝文案不得回显白名单');
     }
-    assert.equal(calls.length, 2, 'only the two authorization checks should reach the bridge');
   }
 });

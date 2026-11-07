@@ -23,26 +23,21 @@ import { SENSITIVE_RE } from './sensitive.js';
 import { looksLikeUnfinished } from './v2-wait.js';
 import { compactModelMessage } from './qq-model-view.js';
 import { safeFetchBuffer, looksLikeImageBuffer, downloadToFile } from './safe-fetch.js';
+import { ensureDailyOutfits, todayOutfit, outfitForDraw } from './daily-outfit.mjs';
 import { AUDIO_EXTS, cleanupTemp, describeAudio, formatBytes, formatDuration, inspectAudio, listAudioFiles, parseTargetKey, processAudioVolume, resolveAudioProcessing, resolveAudioSource, safeJoinLibrary } from './send-voice-lib.js';
 import { discoverSnowLumaConnection, persistSnowLumaEndpoint, persistToken } from './snowluma-conn.js';
 import { hardenDir, manualDirCommand } from './state-acl.mjs';
 import { extractForwardIds, forwardIdFromData, sanitizeForwardId, formatForwardResponse } from './forward.js';
+import { resolveStoryboardCli, runVideoStoryboard } from './video-watch.js';
+import { watchScreen, describeWatch, SCREEN_LIMITS } from './screen-watch.js';
 import { resolvePriceTable, normalizeUsage, ratesAt } from './model-prices.js';
 import { createTokenLedger, usageOfEvent } from './token-ledger.js';
 import { DIARY_NUDGE_FROM_HOUR, diaryBrief, diaryDay, diaryNudgeGate, diaryReadDay, diaryRecent, diaryStats, diaryTodayCount, diaryWrite, formatDiaryEntries } from './diary-lib.js';
-import {
-  PERMIT_SCOPES,
-  activeGrant,
-  createRequest,
-  formatRemaining,
-  isKnownScope,
-  permitFilePath,
-  prunePermits,
-  readPermitFile,
-  resolveGrant,
-  writePermitFile
-} from './permit-lib.js';
 import { describeClock, formatTimeContext, humanGap, proactiveTimeFactor } from './time-context.js';
+// ⭐ 记忆索引的"逐条保留几天"必须和这里用的同一个值（2026-11-03 主人把窗口收成 2 天）：
+//    索引里在的都算"刚提过"，不需要再从归档里撞出来；窗口两边不一致，就会
+//    刚被移出索引的条目又被当成"本来就在索引里"而永不提起 —— 等于那批记忆消失。
+import { INDEX_RECENT_DAYS } from '../plugins/qq-memory-rollover/memory-index.mjs';
 import { createAsr, ASR_DEFAULT_TOOLS_DIR } from './asr-lib.js';
 import { cleanupSpeech, createTts, newSpeechPath } from './tts-lib.js';
 import {
@@ -204,7 +199,6 @@ const RECALL_HITS_FILE = path.join(STATE_DIR, 'memory-hits.json');
 const STICKER_FILE = path.join(STATE_DIR, 'stickers.json');
 // 「向我申请」的授权表。**必须落文件**：执行判定在 DSH 进程的守卫里（见
 // plugins/qq-agent-presets/qq-tool-restrict.mjs），与桥接是两个进程，内存变量它看不见。
-const PERMIT_FILE = permitFilePath(ROOT);
 // 群图媒体库：图片字节 + index.json。**刻意放在 state/ 之外**——
 // 这里会有成百上千张图片，混进 state/ 会让 ACL 收紧、备份和排查都变难。
 // 与「小鲸鱼的图库」（她自己挑着收的相册）也不是一回事：那个是她的纪念册，这个是素材库。
@@ -531,6 +525,87 @@ function bodySay(config, text, volume = 0, timeoutMs = 90000) {
     });
   });
 }
+
+/* ── 摄像头的 USB 串口预览（调试用）────────────────────────────────────────
+ *
+ * 背景：平时取图走公网 MQTT（慢：2~4fps，还吃 EMQX 额度）。板子插在这台电脑上时，
+ * 可以临时把摄像头切到「串口直出 JPEG」，本地能到 8~10fps —— 调焦、摆机位、验画质
+ * 都用这条。rot/tools/cam_uart_live.py 干的就是：115200 下发 `CAM UART 1`，
+ * 板子回 `BAUD 1500000` 后改波特率、按 `META,JPEG,<len>` + 裸 JPEG 推帧，
+ * 脚本再起个 http://127.0.0.1:8765/ 的 MJPEG 页面。
+ *
+ * 三条纪律：
+ *   ① 二选一：它跑着的时候独占 COM4，烧录会失败；板子也不再往 MQTT 推。
+ *   ② 进程要能被停：控制台按「停」或桥接退出时都得收尸，否则板子卡在 1.5M 模式。
+ *   ③ 只在本机：这个页面不开给外网，也不给群里的任何人。
+ */
+let camUartProc = null;
+let camUartStartedAt = 0;
+let camUartLastErr = '';
+const CAM_UART_HTTP_PORT = Math.max(1, Math.min(65535, Number(process.env.QQBRIDGE_CAM_PORT) || 8765));
+
+function camUartState() {
+  const running = !!camUartProc && camUartProc.exitCode === null && !camUartProc.killed;
+  return {
+    running,
+    url: `http://127.0.0.1:${CAM_UART_HTTP_PORT}/`,
+    port: CAM_UART_HTTP_PORT,
+    since: running ? camUartStartedAt : 0,
+    error: running ? '' : camUartLastErr
+  };
+}
+
+function camUartStart() {
+  const state = camUartState();
+  if (state.running) return { ...state, ok: true };
+  const script = findBodyTool('cam_uart_live.py');
+  if (!script) return { ok: false, error: '找不到 rot/tools/cam_uart_live.py（设 QQBRIDGE_BODY 指过去）' };
+  if (!fs.existsSync(BODY_PROBE_PYTHON)) return { ok: false, error: '找不到她 ASR 那个 venv 的 python' };
+  const serialPort = String(process.env.QQBRIDGE_CAM_SERIAL || 'COM4');
+  camUartLastErr = '';
+  try {
+    camUartProc = spawn(BODY_PROBE_PYTHON, [
+      '-u', script, '--port', serialPort, '--http-port', String(CAM_UART_HTTP_PORT)
+    ], {
+      cwd: path.dirname(script),
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true
+    });
+  } catch (error) {
+    camUartLastErr = String(error?.message ?? error);
+    return { ok: false, error: camUartLastErr };
+  }
+  camUartStartedAt = Date.now();
+  camUartProc.stdout?.on('data', (b) => {
+    const line = String(b).trim();
+    if (line) log(`串口预览：${line}`);
+  });
+  camUartProc.stderr?.on('data', (b) => {
+    const line = String(b).trim();
+    if (line) { camUartLastErr = line; log(`串口预览(错误)：${line}`); }
+  });
+  camUartProc.on('exit', (code) => {
+    if (code !== 0) camUartLastErr = camUartLastErr || `脚本退出码 ${code}（板子没插？COM4 被占？）`;
+    log(`串口预览结束（退出码 ${code}）`);
+    camUartProc = null;
+    camUartStartedAt = 0;
+  });
+  return { ...camUartState(), ok: true };
+}
+
+function camUartStop() {
+  const proc = camUartProc;
+  if (!proc) return { ...camUartState(), ok: true };
+  camUartProc = null;
+  camUartStartedAt = 0;
+  try {
+    // Windows 下 kill() 只杀 py 进程本身；/T 连子进程一起收，/F 免得它赖着不放 COM4。
+    spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+  } catch {}
+  return { ...camUartState(), ok: true };
+}
+process.on('exit', () => { try { camUartStop(); } catch {} });
 
 /**
  * 模式拼写的**唯一**归一入口（输入边界）。
@@ -921,7 +996,7 @@ function searchDailyMemory(keyword, opts = {}) {
 /**
  * 「每轮撞一下老记忆」—— 2026-10-29 加。
  *
- * 起因：角色卡里的记忆索引只放最近几天（memory-index 的 INDEX_RECENT_DAYS = 3）。
+ * 起因：角色卡里的记忆索引只放最近几天（memory-index 的 INDEX_RECENT_DAYS，当前 2 天）。
  * 实测 62 条记忆里 50 条（约八成）在索引之外。它们**没丢**，qq_memory_query 查得到，
  * 但那是「她自己想起来要查」才有的路径 —— 而她不知道自己忘了什么，于是永远不查。
  * 结果就是八成记忆等于不存在。
@@ -943,7 +1018,7 @@ function recallIdOf(row) {
  * 不读盘、不写盘，单测直接喂数据。
  *
  * rows: [{ date, text, scope, detail, inferred }]
- * opts: { scope, top = 2, recentDays = 3, now = Date.now(), cooldownMs = 6h, hits = {} }
+ * opts: { scope, top = 2, recentDays = INDEX_RECENT_DAYS, now = Date.now(), cooldownMs = 6h, hits = {} }
  * 返回: [{ id, date, text, inferred }]
  */
 function pickRecallRows(rows, query, opts = {}) {
@@ -951,7 +1026,7 @@ function pickRecallRows(rows, query, opts = {}) {
   if (!q) return [];
   const scope = String(opts.scope == null ? '' : opts.scope).trim();
   const top = Math.max(1, Math.min(3, Number(opts.top) || 2));
-  const recentDays = Math.max(0, Number(opts.recentDays == null ? 3 : opts.recentDays));
+  const recentDays = Math.max(0, Number(opts.recentDays == null ? INDEX_RECENT_DAYS : opts.recentDays));
   const now = Number(opts.now == null ? Date.now() : opts.now);
   const cooldownMs = Math.max(0, Number(opts.cooldownMs == null ? 6 * 3600 * 1000 : opts.cooldownMs));
   const hits = (opts.hits && typeof opts.hits === 'object') ? opts.hits : {};
@@ -1219,9 +1294,10 @@ const ROLES_DIR = path.join(ROOT, 'roles');
 const ROLE_NAME_MAX = 40;
 const ROLE_CONTENT_MAX_BYTES = 64 * 1024;
 // 注入上限：**按模式筛完小节之后**再截断，避免另一模式的专属内容白白占掉预算。
-// 默认 6000（沿用历史值，是每条约 4~6k token 的成本护栏），可用 config.json 的
+// 默认 9000（2026-11-07 主人从历史值 6000 上调：角色卡正文 6683 + 索引若干，6000 太紧，
+// 一截就从头砍掉末尾的索引；每条约 6~8k token 的成本护栏），可用 config.json 的
 // role.maxInjectChars 调整（1000~20000）；启动时由 applyRoleInjectLimit() 写入。
-const ROLE_INJECT_MAX_CHARS_DEFAULT = 6000;
+const ROLE_INJECT_MAX_CHARS_DEFAULT = 9000;
 let roleInjectMaxChars = ROLE_INJECT_MAX_CHARS_DEFAULT;
 function applyRoleInjectLimit(value) {
   const n = Number(value);
@@ -1630,6 +1706,242 @@ const HOST_RUN_DENY_RE = [
   /\bRemove-Item\b[^\n]*-Recurse[^\n]*-Force[^\n]*\b[a-z]:\\?(\s|$)/i, // 删整个盘
 ];
 
+/**
+ * 桌面 GUI 面：截屏 + 鼠标键盘（2026-11-02，主人 m00296 / m00593）。
+ *
+ * 为什么要这一套：`host-run` 已经能跑命令，但她**看不见屏幕、也点不了东西**——
+ * 主人给她下了个 Unity 的 exe 游戏（`game/2.Probably Stolen`），她只能回
+ * 「这种 exe 我根本接不上」。有了截屏 + 输入，她才能真正"坐在电脑前"。
+ *
+ * ⚠️ 为什么走 `-EncodedCommand` 而不是 `-Command "..."`：
+ *   ① 脚本里全是引号、反斜杠、@'...'@ 多行，拼进命令行会被 cmd/PS 的转义吃掉；
+ *   ② 这类代码**写成 .ps1 文件再跑会被 Defender 直接杀掉**
+ *      （实测报 `ScriptContainedMaliciousContent`「此脚本包含恶意内容，已被防病毒扫描终止」），
+ *      所以只能内联。`-EncodedCommand` 收 UTF-16LE base64，天然免疫引号问题。
+ *
+ * ⭐⭐ 2026-11-03 改成**异步**（原来是 spawnSync）。为什么：
+ *   桥接是**单进程单线程**的 Node。spawnSync 会把事件循环整个卡死 ——
+ *   截一张屏实测 1.0~2.7 秒，这期间：
+ *     · 收不到 QQ 消息（主人发的字排在队里，等截完才进来）；
+ *     · 别的工具调用也全停；
+ *     · 心跳/长轮询全被推迟。
+ *   于是她会表现成"一截图就不理人"——主人原话是
+ *   「小鲸鱼好像不能一边和我一起看屏幕一边和我聊天」。
+ *   改成异步 spawn 后，截图/输入/跑命令期间桥接照常收发消息。
+ *
+ * ⚠️ 返回形状故意**保持和 spawnSync 一致**（{status, stdout, stderr, error, signal}），
+ *   这样所有调用点只需要加 `await`，不用改判错逻辑。
+ * ⚠️ 超时也得自己实现：spawn 没有 timeout 选项，这里用 setTimeout + kill 模拟，
+ *   超时后把 error.code 设成 'ETIMEDOUT'，与 spawnSync 的语义对齐。
+ */
+function runPowerShellEncoded(script, { timeoutMs = 60000 } = {}) {
+  return runProcessEncoded(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(String(script), 'utf16le').toString('base64')],
+    { timeoutMs }
+  );
+}
+
+/**
+ * 异步跑一个子进程，返回**与 spawnSync 同形状**的结果。
+ *
+ * 为什么不直接用 `node:child_process` 的回调式 API：调用点已经有十几处按
+ * `r.status` / `r.stdout` / `r.error` 判错了，换形状等于全改一遍、还容易漏。
+ * 这里包一层 Promise，形状对齐，调用点只加 await。
+ *
+ * @param {string} cmd
+ * @param {string[]} args
+ * @param {{timeoutMs?:number, cwd?:string}} opts
+ * @returns {Promise<{status:number|null, signal:string|null, stdout:Buffer, stderr:Buffer, error?:Error}>}
+ */
+function runProcessEncoded(cmd, args, { timeoutMs = 60000, cwd = os.tmpdir() } = {}) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer = null;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(value);
+    };
+    let child;
+    try {
+      child = spawn(cmd, args, { cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (error) {
+      finish({ status: null, signal: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), error });
+      return;
+    }
+    const out = [];
+    const err = [];
+    let outLen = 0;
+    let errLen = 0;
+    // 上限 64MB，和原来 spawnSync 的 maxBuffer 对齐：超了之后就不再累积（但进程继续跑）。
+    const MAX = 64 * 1024 * 1024;
+    child.stdout.on('data', (d) => { if (outLen < MAX) { out.push(d); outLen += d.length; } });
+    child.stderr.on('data', (d) => { if (errLen < MAX) { err.push(d); errLen += d.length; } });
+    timer = setTimeout(() => {
+      const error = new Error(`命令超过 ${timeoutMs}ms 没结束`);
+      error.code = 'ETIMEDOUT';
+      try { child.kill('SIGKILL'); } catch {}
+      finish({
+        status: null,
+        signal: 'SIGTERM',
+        stdout: Buffer.concat(out),
+        stderr: err.length ? Buffer.concat(err) : Buffer.from(error.message),
+        error
+      });
+    }, Math.max(1, Number(timeoutMs) || 60000));
+    if (timer.unref) timer.unref();
+    child.on('error', (error) => {
+      finish({ status: null, signal: null, stdout: Buffer.concat(out), stderr: Buffer.concat(err), error });
+    });
+    child.on('close', (code, signal) => {
+      finish({ status: code, signal: signal ?? null, stdout: Buffer.concat(out), stderr: Buffer.concat(err) });
+    });
+  });
+}
+
+// 鼠标/键盘的 Win32 声明。编译一次缓存成 dll（`Add-Type -Path` 复用只要 ~1.5s，
+// 每次重编译 ~3.6s —— 连续点几下就会明显卡）。
+// 注意：这只 dll 在 %TEMP% 下，**文件名带版本号**：改过 C# 定义就换名字，
+// 否则老 dll 还在那儿，`Test-Path` 通过、新方法却不存在，会报"找不到方法"。
+const WIN_INPUT_DLL = path.join(os.tmpdir(), 'qq-bridge-input-v4.dll');
+const WIN_INPUT_CS = `
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public class QQBridgeInput {
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowTextW(IntPtr h, StringBuilder s, int max);
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
+  [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, int dwExtraInfo);
+  [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint uCode, uint uMapType);
+  [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);
+  [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
+  // INPUT 的联合体按最大成员（MOUSEINPUT 40 字节）留位置；x64 下总长必须正好 40，否则 SendInput 直接返回 0。
+  [StructLayout(LayoutKind.Explicit, Size = 40)]
+  public struct INPUT { [FieldOffset(0)] public uint type; [FieldOffset(8)] public KEYBDINPUT ki; }
+  [DllImport("user32.dll", SetLastError = true)] public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+  // ⚠️ 这几个常量名**必须**和下面方法名拉开距离。PowerShell 的成员解析是大小写不敏感的，
+  //    const LEFTDOWN 和 void LeftDown() 在 PS 眼里是同一个名字 ——
+  //    [QQBridgeInput]::LeftDown() 会被解析成「拿那个常量当方法调」，
+  //    报错却是「不包含名为 LeftDown 的方法」。2026-11-02 实测踩过一次。
+  public const uint ME_LEFTDOWN = 0x0002, ME_LEFTUP = 0x0004, ME_RIGHTDOWN = 0x0008, ME_RIGHTUP = 0x0010, ME_WHEEL = 0x0800;
+  public const uint KF_KEYUP = 0x0002;
+  // ⭐ 审计用（2026-11-02）：动作**落到谁身上**必须可追溯。
+  //   只记「click (450,272)」等于没记 —— 出事后回答不了"她到底点了哪个窗口"。
+  //   返回 "hwnd|pid|title"；拿不到就是 "0|0|"。
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(IntPtr h, out int pid);
+  public static string Foreground() {
+    IntPtr h = GetForegroundWindow();
+    if (h == IntPtr.Zero) return "0|0|";
+    int pid; GetWindowThreadProcessId(h, out pid);
+    var sb = new StringBuilder(512);
+    int n = GetWindowTextW(h, sb, 512);
+    return string.Format("{0}|{1}|{2}", h.ToInt64(), pid, n > 0 ? sb.ToString() : "");
+  }
+  public static void Move(int x, int y) { SetCursorPos(x, y); }
+  public static void MouseLeftDown() { mouse_event(ME_LEFTDOWN, 0, 0, 0, 0); }
+  public static void MouseLeftUp() { mouse_event(ME_LEFTUP, 0, 0, 0, 0); }
+  public static void MouseRightDown() { mouse_event(ME_RIGHTDOWN, 0, 0, 0, 0); }
+  public static void MouseRightUp() { mouse_event(ME_RIGHTUP, 0, 0, 0, 0); }
+  public static void Scroll(int delta) { mouse_event(ME_WHEEL, 0, 0, (uint)delta, 0); }
+  public static void KeyDown(int vk) { keybd_event((byte)vk, (byte)MapVirtualKey((uint)vk, 0), 0, 0); }
+  public static void KeyUp(int vk) { keybd_event((byte)vk, (byte)MapVirtualKey((uint)vk, 0), KF_KEYUP, 0); }
+  public static void KeyPress(int vk) { KeyDown(vk); System.Threading.Thread.Sleep(20); KeyUp(vk); }
+  // 直接投递 Unicode 扫描码：**中文、emoji 都能打**，也不碰剪贴板。
+  // （之前用 SendKeys 只能打 ASCII，还得靠剪贴板绕中文 —— 那会覆盖主人自己的剪贴板。）
+  public static int TypeUnicode(string s) {
+    int sent = 0;
+    foreach (char c in s) {
+      if (c == '\\r') continue;
+      if (c == '\\n') { KeyPress(0x0D); continue; }
+      var down = new INPUT(); down.type = 1;
+      down.ki.wVk = 0; down.ki.wScan = (ushort)c; down.ki.dwFlags = 0x0004;
+      var up = new INPUT(); up.type = 1;
+      up.ki.wVk = 0; up.ki.wScan = (ushort)c; up.ki.dwFlags = 0x0006;
+      sent += (int)SendInput(2, new INPUT[] { down, up }, Marshal.SizeOf(typeof(INPUT)));
+      System.Threading.Thread.Sleep(2);
+    }
+    return sent;
+  }
+}
+`;
+
+// 把一段输入脚本包起来：装载（或首次编译）上面那只 dll，然后执行 body。
+//
+// ⭐ 2026-11-02 加的审计壳：动作前后各取一次**前台窗口**，打成两行标记输出。
+//   为什么：日志里只写「click (450,272)」没法回答"她到底点了谁"；
+//   出事了要对账，必须知道那一下落在哪个窗口上。
+function wrapInputScript(body) {
+  return `$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+$dll = '${WIN_INPUT_DLL.replace(/'/g, "''")}'
+if (-not (Test-Path -LiteralPath $dll)) {
+  Add-Type -TypeDefinition @'
+${WIN_INPUT_CS}
+'@ -OutputAssembly $dll
+}
+Add-Type -Path $dll
+$__fgb = [QQBridgeInput]::Foreground()
+Write-Output ("__FGB__:" + $__fgb)
+try {
+${body}
+} finally {
+  Write-Output ("__FGA__:" + [QQBridgeInput]::Foreground())
+}`;
+}
+
+/** 从 PowerShell 输出里挑出 __FGB__/__FGA__ 标记，返回 {before, after, rest}。 */
+function parseFgMarks(text) {
+  const lines = String(text ?? '').split(/\r?\n/);
+  const keep = [];
+  let before = null;
+  let after = null;
+  for (const line of lines) {
+    if (line.startsWith('__FGB__:')) before = line.slice('__FGB__:'.length);
+    else if (line.startsWith('__FGA__:')) after = line.slice('__FGA__:'.length);
+    else if (line.trim()) keep.push(line);
+  }
+  const parse = (s) => {
+    if (!s) return null;
+    const [hwnd, pid, ...rest] = String(s).split('|');
+    const title = rest.join('|');
+    return { hwnd: String(hwnd || ''), pid: Number(pid) || 0, title };
+  };
+  return { before: parse(before), after: parse(after), rest: keep.join('\n') };
+}
+
+// 键盘虚拟键码表。只收常用的（全表 200+ 个没必要，模型点名时基本就这几个）。
+// 名字大小写不敏感；单字符 a-z/0-9 直接按 ASCII 大写取码。
+const VK_CODES = {
+  enter: 0x0D, return: 0x0D, tab: 0x09, esc: 0x1B, escape: 0x1B, space: 0x20,
+  backspace: 0x08, delete: 0x2E, del: 0x2E, insert: 0x2D, home: 0x24, end: 0x23,
+  pageup: 0x21, pagedown: 0x22, up: 0x26, down: 0x28, left: 0x25, right: 0x27,
+  ctrl: 0x11, control: 0x11, alt: 0x12, shift: 0x10, win: 0x5B, lwin: 0x5B, rwin: 0x5C,
+  capslock: 0x14, f1: 0x70, f2: 0x71, f3: 0x72, f4: 0x73, f5: 0x74, f6: 0x75,
+  f7: 0x76, f8: 0x77, f9: 0x78, f10: 0x79, f11: 0x7A, f12: 0x7B,
+  printscreen: 0x2C, pause: 0x13, apps: 0x5D, numlock: 0x90, scrolllock: 0x91
+};
+
+/** 把 "enter" / "a" / "5" / "ctrl" 变成 PowerShell 里的整数键码表达式。 */
+function VK_EXPR(raw) {
+  const key = String(raw ?? '').trim();
+  const lower = key.toLowerCase();
+  if (VK_CODES[lower] !== undefined) return String(VK_CODES[lower]);
+  if (/^[a-z]$/i.test(key)) return String(key.toUpperCase().charCodeAt(0));
+  if (/^[0-9]$/.test(key)) return String(key.charCodeAt(0));
+  // 其它一律按数字相信她（也允许直接传 0x2E 这种）
+  if (/^0x[0-9a-f]+$/i.test(key)) return String(parseInt(key, 16));
+  if (/^\d+$/.test(key)) return key;
+  return '0';
+}
+
 // ── 配置 ────────────────────────────────────────────────────────────────────
 function loadConfig() {
   const p = path.join(ROOT, 'config.json');
@@ -1742,7 +2054,6 @@ function loadConfig() {
         sendGroup: true,
         sendPrivate: true,
         reply: true,
-        sendBurst: true,
         sendMessage: true,
         waitMessages: true,
         feedback: true,
@@ -1761,6 +2072,10 @@ function loadConfig() {
         setStickerRemark: false,
         stickerNote: true,
         collectSticker: true,
+        // 看视频（storyboard 宫格图）：群里有人甩链接时她要能"看一眼"
+        watchVideo: true,
+        // 看屏幕（see-now）：只在管理员私聊开，别处一律拒（见 /api/screen/watch）
+        watchScreen: true,
         // 群图库工具（桥接自动收录的群友图片；与上面的收藏表情是两套）
         listPhotos: true,
         getPhotoImage: true,
@@ -1864,6 +2179,47 @@ function loadConfig() {
         scope: 'owner-and-groups', // 'owner' = 只管理员私聊；'owner-and-groups' = 管理员私聊 + 群（默认）；'everyone' = 全开
         dailyPerSession: 5       // 非管理员的日额度（张/天）；管理员私聊不限。0 = 不限
       },
+      // 每日穿搭（2026-10-30 主人：「只需要她每天换衣服，同一天穿一件，不用生成事件」）。
+      // 只维护 <DSH_HOME>/daily-schedule/days/<某天>.json 里那一个 00:00–24:00 的段，
+      // 让生图插件的 schedule-link 取到当天这套；不生成任何活动/地点/事件。
+      dailyOutfit: {
+        enabled: true,
+        exclude: ['深海女仆装·Q版'], // Q 版那套给成女穿会出错
+        offset: 0                 // 轮换起点偏移（改个数字就能整体错开）
+      },
+      draw: {
+        // 出图时模型没点名人物 → 默认就是她本人（2026-10-30）。
+        // 留空字符串表示不补。想换人/换 Q 版就改这里，比如 '小鲸鱼·Q版'。
+        defaultCharacter: '小鲸鱼'
+      },
+      // 看视频（2026-10-31）：给她一个链接，她去把片子切成宫格图真看一眼。
+      //
+      // 为什么单开一段而不是混进 media：它有自己的一份账（`st.videoTimes`），
+      // 而且 `cliPath` 是「这台机器上那个插件装在哪」，属于部署参数不是内容策略。
+      video: {
+        enabled: true,
+        // 非管理员的日额度（次/天）；管理员私聊不限（limit 0）。0 = 不限。
+        // 默认 5 是因为它要真下载真转码，跟"读一条消息"不是一个量级。
+        dailyPerSession: 5,
+        // 一次 storyboard 最多等多久（毫秒）。长片（讲座/实况）会真等到这个上限。
+        timeoutMs: 300000,
+        // 插件 CLI 的绝对路径；留空 = 按 DSH_HOME 下那两个约定位置找（见 video-watch.js）。
+        cliPath: ''
+      },
+      // 看屏幕（2026-11-03）：看"这一段时间里画面变了几次"，不是截一帧。
+      //
+      // 为什么单独一段：它有自己的资源账（ffmpeg 抓屏 + 每帧打分）和部署参数
+      // （ffmpegPath 决定用 ddagrab 还是 gdigrab，老版本 ffmpeg 没有 ddagrab）。
+      screen: {
+        enabled: true,
+        // 一次最多看多久（秒）。上限硬编码 120（SCREEN_LIMITS），这里只能往小调。
+        defaultSeconds: 10,
+        maxSeconds: 60,
+        // ffmpeg 的绝对路径；留空 = 走 see-now 的默认解析（DSH_HOME 的 tools/ffmpeg，
+        // 找不到就用 PATH 上的）。注意：老版本 ffmpeg（2018 那套）没有 ddagrab，
+        // 会自动降级成 gdigrab —— 能跑，但抓不到硬件叠加层和部分独占全屏。
+        ffmpegPath: ''
+      },
       feedback: {
         maxLength: 500,
         notifyOwnerOnError: false
@@ -1891,7 +2247,6 @@ function loadConfig() {
     sendGroup: true,
     sendPrivate: true,
     reply: true,
-    sendBurst: true,
     sendMessage: true,
     waitMessages: true,
     feedback: true,
@@ -1901,8 +2256,6 @@ function loadConfig() {
     setWakeConfig: true,
     markRead: true,
     memory: true,
-    slangQuery: true,
-    slangSubmit: true,
     getImages: true,
     getForwardMsg: true,
     sendPoke: true,
@@ -1912,6 +2265,10 @@ function loadConfig() {
     setStickerRemark: false,
     stickerNote: true,
     collectSticker: true,
+    // 看视频（storyboard 宫格图）
+    watchVideo: true,
+    // 看屏幕（see-now）
+    watchScreen: true,
     // 群图库工具（桥接自动收录的群友图片；与上面的收藏表情是两套）
     listPhotos: true,
     getPhotoImage: true,
@@ -1931,11 +2288,6 @@ function loadConfig() {
     qzoneComment: true,
     qzoneDelete: true,
     qzoneSetRight: true,
-    getAccount: true,
-    // 「向我申请」：她要玩手机/刷B站，得先问一声，他同意才放行。
-    // 这个开关只决定"申请这个工具存不存在"；**能不能真的用**由 state/permits.json
-    // 决定的执行期守卫管（见 plugins/qq-agent-presets/qq-tool-restrict.mjs）。
-    requestPermission: true,
     // 约定：qq_promise / qq_promise_done（到点主动叫醒她去做约定的事）
     promise: true,
     // 语音通话（档 2）：qq_call_status / qq_call_answer / qq_call_hangup / qq_call_say。
@@ -2543,43 +2895,6 @@ function canonicalV2Key(key) {
 const APPROVE_WORDS = new Set(['通过', '同意', '允许', '批准', 'yes', 'y', 'approve', 'ok']);
 const REJECT_WORDS = new Set(['拒绝', '不同意', '不允许', '驳回', 'no', 'n', 'reject', 'deny']);
 
-/**
- * 解析主人对「申请玩手机/刷B站」的答复。
- *
- * 支持的说法（他打字很随意，这里刻意放宽）：
- *   同意 / 行 / 可以 / 好 / 去吧 / 准了 / 批准     → 允许，默认时长
- *   同意 1 小时 / 行，半小时 / 给你 20 分钟        → 允许，带上请求的时长
- *   不同意 / 不行 / 不用 / 算了 / 别玩了 / 拒绝     → 拒绝
- * 其它（「等一下」「在忙」「你玩啥」）→ null，当成普通对话往下走，
- * 申请继续挂着等他正面回一句。这样不会被一句「等会」误判成拒绝。
- *
- * ⚠️ 只认**短消息**（去掉标点后 ≤ 24 字）：他要是认真聊了段话，
- * 里面碰巧有「可以」两个字，那不该被当成授权。
- *
- * @returns {{allowed:boolean, ttlMs?:number, raw:string}|null}
- */
-function parsePermitAnswer(text) {
-  const raw = String(text ?? '').trim();
-  if (!raw) return null;
-  const compact = raw.replace(/[\s，,。.!！？?、~～…]+/g, '');
-  if (compact.length > 24) return null;
-  // 先判拒绝：句子里出现否定词时，别被前面的「同意」带偏（「不同意」包含「同意」）。
-  const denyHit = /(不同意|不允许|不批准|不行|不可以|不准|别玩|不要|算了|免了|拒绝|驳回|不用了|下次吧|no|nope)/i.test(compact);
-  const allowHit = /(同意|可以|行|好|去吧|准了|批准|允许|ok|yes|嗯嗯|对)/i.test(compact);
-  if (denyHit && !/^(同意|可以)/.test(compact)) {
-    return { allowed: false, raw };
-  }
-  if (!allowHit) return null;
-  // 时长：分钟 / 小时 / 半小时
-  let ttlMs;
-  const halfHour = /半(个)?小时/.test(compact);
-  const hourMatch = /(\d+(?:\.\d+)?)\s*(?:个)?\s*小时/.exec(compact);
-  const minMatch = /(\d+)\s*(?:分钟|分)/.exec(compact);
-  if (hourMatch) ttlMs = Number(hourMatch[1]) * 60 * 60 * 1000;
-  else if (halfHour) ttlMs = 30 * 60 * 1000;
-  else if (minMatch) ttlMs = Number(minMatch[1]) * 60 * 1000;
-  return { allowed: true, ttlMs, raw };
-}
 
 // state/ 的 ACL 是否已收紧（hardenStateDirAcl 的结果；控制台「访问与安全」页会显示，
 // 未收紧时给出可复制的提权命令）。null = 还没跑/平台不适用。
@@ -2927,12 +3242,32 @@ async function main() {
       const value = body[field];
       if (typeof value === 'string' && value.trim()) out[field] = value.trim();
     }
+    // 「有没有提过人物」要单独记：显式传 characters: [] 表示"这张不要人物参考图"，
+    // 跟"漏传"是两回事。
+    const askedCharacters = body.characters !== undefined && body.characters !== null;
     for (const field of ['characters', 'outfits', 'extra_images']) {
       const value = body[field];
       if (Array.isArray(value) && value.length) out[field] = value.map((item) => String(item));
       else if (typeof value === 'string' && value.trim()) out[field] = [value.trim()];
     }
     if (body.user_requested) out.user_requested = true;
+    // 没指定服饰时补上「今天穿的这套」（2026-10-30）。
+    // 为什么不交给插件的 followSchedule：那条链要读 dsh-daily-schedule 的数据文件，
+    // 插件被卸载/改结构就断；这里直接由我们自己定的当天那套说了算，稳得多。
+    if (!out.outfits || !out.outfits.length) {
+      try {
+        const today = outfitForDraw();
+        if (today) out.outfits = [today];
+      } catch { /* 穿搭取不到就照旧走插件的默认规则，不能因此画不出图 */ }
+    }
+    // 没点名人物 → 默认她本人（2026-10-30）。
+    // 不补这一下的后果：模型漏传 characters 时插件不挂人物参考图，画出来是个陌生人
+    //（实测那天 18:20 那张就是一张无关的真人照片，跟她一点关系都没有）。
+    // 真要画别的东西（一只猫、一片风景），显式传 characters: [] 就行。
+    if (!askedCharacters && (!out.characters || !out.characters.length)) {
+      const fallback = String(cfg.socialV2?.draw?.defaultCharacter ?? '').trim();
+      if (fallback) out.characters = [fallback];
+    }
     return out;
   }
 
@@ -2997,6 +3332,28 @@ async function main() {
     if (!Array.isArray(st.drawTimes)) st.drawTimes = [];
     st.drawTimes.push({ day: today, at: Date.now(), cost: Number(extra.cost) || 0 });
     if (st.drawTimes.length > 200) st.drawTimes = st.drawTimes.slice(-200);
+    saveSocialV2State();
+  }
+
+  /** 一个会话今天还能「看」几条视频。逻辑同 drawQuotaOf：主人不限，别人按天算。 */
+  function videoQuotaOf(key) {
+    const vid = cfg.video ?? {};
+    const isOwner = String(key) === `private:${cfg.ownerQQ}`;
+    const limit = isOwner ? 0 : Math.max(0, Number(vid.dailyPerSession ?? 5) | 0);
+    const st = getSocialV2State(key);
+    const today = localDay();
+    const used = (Array.isArray(st.videoTimes) ? st.videoTimes : [])
+      .filter((t) => String(t?.day ?? '') === today).length;
+    return { limit, used, left: limit === 0 ? Infinity : Math.max(0, limit - used), today };
+  }
+
+  /** 记一次看视频成功。必须立刻落盘 —— 只在内存里记，桥接一重启额度就白送。 */
+  function noteVideoUsed(key, extra = {}) {
+    const { today } = videoQuotaOf(key);
+    const st = getSocialV2State(key);
+    if (!Array.isArray(st.videoTimes)) st.videoTimes = [];
+    st.videoTimes.push({ day: today, at: Date.now(), bytes: Number(extra.bytes) || 0 });
+    if (st.videoTimes.length > 200) st.videoTimes = st.videoTimes.slice(-200);
     saveSocialV2State();
   }
 
@@ -6243,12 +6600,9 @@ async function main() {
           return;
         }
         // 管理端专用 v2 接口：带 agent token 的请求一律拒绝，防止 MCP 工具越权访问控制台功能
-        //   · grant-permit：**她绝不能给自己发牌子**。这是整条闸门里最关键的一条：
-        //     若 AI 能调它，"申请-批准"就变成了"自己批准自己"，比没有闸门更糟。
-        //   · revoke-permit：同理，否则她可以在"不想被管"的时候把授权全撤掉再自己发。
         //   · states / wake / activity / reset / config：跨会话管理面。
 
-        const adminOnlyV2Paths = ['/api/socialV2/config', '/api/socialV2/activity', '/api/socialV2/reset', '/api/socialV2/states', '/api/socialV2/wake', '/api/socialV2/grant-permit', '/api/socialV2/revoke-permit'];
+        const adminOnlyV2Paths = ['/api/socialV2/config', '/api/socialV2/activity', '/api/socialV2/reset', '/api/socialV2/states', '/api/socialV2/wake'];
         if (req.headers['x-agent-token'] && (adminOnlyV2Paths.includes(url.pathname) || (url.pathname === '/api/socialV2/feedback' && req.method === 'GET') || (url.pathname === '/api/socialV2/tool-log' && req.method === 'GET'))) {
           sendJson({ ok: false, error: '该接口仅控制台可用' }, 403);
           return;
@@ -6277,6 +6631,14 @@ async function main() {
             //    放给 AI 等于给自己开一条绕过发送闸门直接产出文本的口子（见下方 turn 处的注释）。
             //    `/api/body/config` / `/api/body/status` 也不放 —— 前者含 broker 账号密码。
             || url.pathname === '/api/body/say'
+            // 看视频（2026-10-31）：她要"看一眼"片子的唯一切口。真正的内容边界不在这里，
+            // 在端点里那三道 —— 会话分档（守卫）、watchVideo 总开关、每人每天的次数上限，
+            // 以及"本地文件路径只认主人私聊"。
+            || url.pathname === '/api/video/watch'
+            // 看屏幕（2026-11-03）：她在管理员私聊里才够得着。真正的边界在端点里 ——
+            // key 必须是主人私聊、watchScreen 总开关、时长上限，以及守卫那一档
+            // （OWNER_PRIVATE_ONLY：群聊/别人私聊连工具名都看不见）。
+            || url.pathname === '/api/screen/watch'
             || url.pathname === '/api/authorize/read';
           if (!agentAllowed) {
             sendJson({ ok: false, error: '该接口仅控制台可用' }, 403);
@@ -6375,6 +6737,22 @@ async function main() {
             },
             configFile: { path: BODY_CONFIG_FILE, exists }
           });
+        }
+        // ── 摄像头 USB 串口预览（本地调试，走 COM4，不碰云端）──────────────
+        // 只在控制台「身体 · 眼睛」那几个按钮里用；理由是它要独占串口、
+        // 而且开起来板子就不往 MQTT 推图了（二选一）。
+        if (url.pathname === '/api/body/cam-uart' && req.method === 'GET') {
+          return sendJson({ ok: true, ...camUartState() });
+        }
+        if (url.pathname === '/api/body/cam-uart/start' && req.method === 'POST') {
+          const result = camUartStart();
+          log(`控制台：启动摄像头串口预览 → ${result.ok ? '已起' : ('失败：' + result.error)}`);
+          return sendJson(result, result.ok ? 200 : 500);
+        }
+        if (url.pathname === '/api/body/cam-uart/stop' && req.method === 'POST') {
+          const result = camUartStop();
+          log('控制台：停止摄像头串口预览');
+          return sendJson(result);
         }
         // ── 让她用屋里的喇叭说话（她 → 板子）────────────────────────────────
         // 与 `/api/body/turn` 正好相反：那边是"板子听见什么 → 她回答"，
@@ -7596,7 +7974,7 @@ async function main() {
           // 子对象必须是非 null 对象；null/数组/基本类型会覆盖默认值导致工具开关被绕过，这里直接保留当前值。
           // 注意：新增顶层子对象时**必须**加进这个数组（例如 asr），否则控制台保存一次
           // 就能把它覆盖成 null/数组/基本类型，里面的设置静默失效。
-          for (const sub of ['tools', 'wake', 'send', 'wait', 'proactive', 'sticker', 'feedback', 'context', 'diary', 'asr', 'voice', 'tts', 'media', 'file']) {
+          for (const sub of ['tools', 'wake', 'send', 'wait', 'proactive', 'sticker', 'feedback', 'context', 'diary', 'asr', 'voice', 'tts', 'media', 'file', 'video', 'screen']) {
             if (body[sub] !== undefined && (body[sub] === null || typeof body[sub] !== 'object' || Array.isArray(body[sub]))) {
               merged[sub] = current[sub] ?? {};
             }
@@ -7609,7 +7987,7 @@ async function main() {
           // ⚠️ 这个名单是控制台开关能不能存下来的唯一依据（scripts/test-extra-console.mjs 双向对账：分组表里的开关名必须在这里，这里的每个必须被分组表归类）。
           // 生图（2026-10-29）只登记一个 `drawImage` —— 控制台那张分组表里它一个开关盖住
           // qq_draw_image + qq_send_image 两个工具；`sendImage` 是内部细分键，不上界面。
-          const toolFlags = ['getPrompt', 'getUnread', 'getRecent', 'socialState', 'sendGroup', 'sendPrivate', 'reply', 'sendBurst', 'sendMessage', 'waitMessages', 'feedback', 'getMyRecent', 'getMessageDetail', 'getActiveMembers', 'setWakeConfig', 'markRead', 'memory', 'slangQuery', 'slangSubmit', 'getImages', 'getForwardMsg', 'sendPoke', 'listStickers', 'getStickerImage', 'sendSticker', 'setStickerRemark', 'stickerNote', 'collectSticker', 'sendQzone', 'getQzone', 'qzoneFeeds', 'qzoneLike', 'qzoneUnlike', 'qzoneComment', 'qzoneDelete', 'qzoneSetRight', 'getAccount', 'requestPermission', 'promise', 'call', 'localExec', 'sendVoice', 'speak', 'writeDiary', 'readDiary', 'listPhotos', 'getPhotoImage', 'sendPhoto', 'photoNote', 'sendFile', 'drawImage'];
+          const toolFlags = ['getPrompt', 'getUnread', 'getRecent', 'socialState', 'sendGroup', 'sendPrivate', 'reply', 'sendMessage', 'waitMessages', 'feedback', 'getMyRecent', 'getMessageDetail', 'getActiveMembers', 'setWakeConfig', 'markRead', 'memory', 'getImages', 'getForwardMsg', 'sendPoke', 'listStickers', 'getStickerImage', 'sendSticker', 'setStickerRemark', 'stickerNote', 'collectSticker', 'sendQzone', 'getQzone', 'qzoneFeeds', 'qzoneLike', 'qzoneUnlike', 'qzoneComment', 'qzoneDelete', 'qzoneSetRight', 'promise', 'call', 'localExec', 'sendVoice', 'speak', 'writeDiary', 'readDiary', 'listPhotos', 'getPhotoImage', 'sendPhoto', 'photoNote', 'sendFile', 'drawImage', 'watchVideo', 'watchScreen'];
           if (body.tools && typeof body.tools === 'object') {
             merged.tools = { ...(current.tools ?? {}), ...body.tools };
             for (const k of toolFlags) {
@@ -7951,7 +8329,6 @@ async function main() {
             sendGroup: 'qq_send_group_message',
             sendPrivate: 'qq_send_private_message',
             reply: 'qq_reply',
-            sendBurst: 'qq_send_burst',
             sendMessage: 'qq_send_message',
             waitMessages: 'qq_wait_for_messages',
             feedback: 'qq_report_feedback',
@@ -7961,8 +8338,6 @@ async function main() {
             setWakeConfig: 'qq_set_wake_config',
             markRead: 'qq_mark_read',
             memory: 'qq_memory_append / qq_memory_query / qq_memory_remove / qq_memory_clear',
-            slangQuery: 'qq_slang_query',
-            slangSubmit: 'qq_slang_submit',
             getImages: 'qq_get_message_images',
             getForwardMsg: 'qq_get_forward_msg',
             sendPoke: 'qq_send_poke',
@@ -7984,7 +8359,6 @@ async function main() {
             qzoneComment: 'qq_qzone_comment',
             qzoneDelete: 'qq_qzone_delete',
             qzoneSetRight: 'qq_qzone_set_right',
-            getAccount: 'qq_get_account_info',
             sendVoice: 'qq_send_voice / qq_list_voices',
             // 语音合成只有一个工具了（2026-10-20 由 qq_say + qq_speak 合并）。
             speak: 'qq_say',
@@ -8297,226 +8671,7 @@ async function main() {
           sendJson({ ok: true, conversations: list });
           return;
         }
-        // ── 向我申请（手机 / 刷B站）────────────────────────────────────────────
-        //
-        // 为什么入口在桥接、判定在守卫：这些工具是 DSH 直接挂的 MCP server，根本不经过
-        // 桥接。桥接能做的是「把这个申请变成一条他看得见的 QQ 消息，并在他说同意时
-        // 往 state/permits.json 写一条**带到期时间**的授权」；真正卡住执行的是
-        // plugins/qq-agent-presets/qq-tool-restrict.mjs —— 它读同一个文件。
-        // 所以这里即使被绕过（比如有人手改文件），最坏也只是把工具放开，而那个前提
-        // 本身就需要本机文件写权限，已经不在 QQ 攻击面上。
-        if (req.method === 'POST' && url.pathname === '/api/socialV2/request-permission') {
-          const body = await readBody();
-          const key = String(body.key ?? '').trim();
-          if (!key) { sendJson({ ok: false, error: 'key 不能为空' }, 400); return; }
-          if (req.headers['x-agent-token'] && !agentTokenOk(key, req.headers['x-agent-token'])) { sendJson({ ok: false, error: 'agent token 无效' }, 403); return; }
-          if (req.headers['x-agent-token'] && !v2SessionAllowed(key)) { sendJson({ ok: false, error: '目标不在当前模式允许范围内' }, 403); return; }
-          if (req.headers['x-agent-token'] && !v2ToolEnabled('requestPermission')) { sendJson(disabledByOwner('qq_request_permission', 'requestPermission'), 403); return; }
-          const scope = String(body.scope ?? '').trim();
-          if (!isKnownScope(scope)) {
-            sendJson({
-              ok: false,
-              error: `未知的授权类别 "${scope}"；只能申请：${Object.entries(PERMIT_SCOPES).map(([id, s]) => `${id}（${s.label}）`).join('、')}`
-            }, 400);
-            return;
-          }
-          // 🔴 只认管理员私聊。群聊/普通成员私聊连"申请"这一步都不该发出去 ——
-          //    否则群友可以用「她来问我」当钓鱼：重复弹申请、诱导误点「同意」。
-          if (key !== `private:${String(cfg.ownerQQ ?? '')}`) {
-            sendJson({
-              ok: false,
-              error: '这类申请只对管理员私聊有效：群聊和普通成员的私聊都不能动主人的手机/账号，申请了也不会被受理。'
-            }, 403);
-            return;
-          }
-          const existing = activeGrant(readPermits(), key, scope);
-          if (existing) {
-            sendJson({
-              ok: true,
-              granted: true,
-              alreadyGranted: true,
-              scope,
-              expiresAt: existing.expiresAt,
-              remainingText: formatRemaining(existing.expiresAt - Date.now()),
-              message: `已经批准过「${PERMIT_SCOPES[scope].label}」，还剩 ${formatRemaining(existing.expiresAt - Date.now())}，直接去用就行，不用再问。`
-            });
-            return;
-          }
-          // 同一会话同时只挂一个申请：新的覆盖旧的（并明确告诉它被覆盖了）。
-          const prev = pendingPermitRequests.get(key);
-          if (prev) {
-            prev.resolve({ allowed: false, reason: 'superseded' });
-            log(`[permit] ${key} 新的申请覆盖了旧的（${prev.scope} → ${scope}）`);
-          }
-          const request = createRequest({ key, scope, why: body.why });
-          const label = PERMIT_SCOPES[scope].label;
-          const maxMin = Math.round(PERMIT_SCOPES[scope].maxTtlMs / 60000);
-          const defMin = Math.round(PERMIT_SCOPES[scope].defaultTtlMs / 60000);
-          const whyLine = request.why ? `\n理由：${request.why}` : '';
-          // 直接发 QQ：她要"来找他"，这条消息就是那个"来"。
-          await sendToQQ(
-            key,
-            `🙋 想跟你说个事：我能${label === '刷B站' ? '去刷会儿 B站' : '玩会儿手机'}吗？${whyLine}\n`
-            + `回「同意」就行（默认给 ${defMin} 分钟，可以写「同意 1 小时」调整，最多 ${maxMin} 分钟）；`
-            + `回「不同意」或者不理它就当没这回事。`
-          );
-          const outcome = await new Promise((resolve) => {
-            const timer = setTimeout(() => {
-              pendingPermitRequests.delete(key);
-              resolve({ allowed: false, reason: 'timeout' });
-            }, PERMIT_REQUEST_TIMEOUT_MS);
-            timer.unref?.();
-            pendingPermitRequests.set(key, { request, scope, resolve, timer });
-          });
-          if (outcome.allowed) {
-            const permit = readPermits();
-            const { expiresAt } = resolveGrant(scope, { requestedMs: outcome.ttlMs });
-            if (!permit.grants[key]) permit.grants[key] = {};
-            permit.grants[key][scope] = {
-              expiresAt,
-              grantedAt: Date.now(),
-              requestId: request.id,
-              why: request.why
-            };
-            permit.requests[request.id] = { ...request, status: 'granted', grantedAt: Date.now(), expiresAt };
-            // ⭐ 授权生效时把模拟器拉起来（如果是 phone 这一档）。
-            //    只记"是不是我们开的"——本来就开着的，到期不会去关它。
-            let emulatorNote = '';
-            if (scope === 'phone' && emulatorCfg().enabled) {
-              const emu = emulatorStartForGrant();
-              if (emu.started) {
-                permit.grants[key][scope].weStartedEmulator = true;
-                emulatorNote = '模拟器我已经替你开好了（玩完授权到期会自己关）。';
-                appendActivity(`${key} [emulator] 授权生效，已启动模拟器`);
-              } else if (emu.note && emu.note !== '模拟器原本就在运行，到期不关') {
-                emulatorNote = `模拟器没拉起来（${emu.note}），你可以先 phone_status 看一眼。`;
-              }
-            }
-            writePermits(prunePermits(permit));
-            log(`[permit] ${key} 已授权「${label}」至 ${new Date(expiresAt).toLocaleString()}（${formatRemaining(expiresAt - Date.now())}）`);
-            appendActivity(`${key} [permit] 主人同意了「${label}」，有效期 ${formatRemaining(expiresAt - Date.now())}`);
-            sendJson({
-              ok: true,
-              granted: true,
-              scope,
-              expiresAt,
-              remainingText: formatRemaining(expiresAt - Date.now()),
-              emulatorStarted: /替你开好了/.test(emulatorNote) || undefined,
-              message: `他同意了。现在可以「${label}」，有效期到 ${new Date(expiresAt).toLocaleString()}（约 ${formatRemaining(expiresAt - Date.now())}）。`
-                + (emulatorNote ? `\n${emulatorNote}` : '')
-                + '到期后要再玩就得重新问他。'
-            });
-            return;
-          }
-          const reasonText = outcome.reason === 'timeout'
-            ? `他没有回你（等了 ${Math.round(PERMIT_REQUEST_TIMEOUT_MS / 60000)} 分钟）`
-            : outcome.reason === 'superseded'
-              ? '你后面又发了一个新的申请，这个被顶掉了'
-              : '他说不行';
-          const deniedFile = readPermits();
-          deniedFile.requests[request.id] = { ...request, status: 'denied', deniedAt: Date.now() };
-          writePermits(prunePermits(deniedFile));
-          log(`[permit] ${key} 申请「${label}」未获同意：${outcome.reason}`);
-          sendJson({
-            ok: true,
-            granted: false,
-            scope,
-            reason: outcome.reason,
-            message: `${reasonText}，这会儿不能「${label}」。不用反复申请 —— 他真忙或者不想就直接说找不了；等下次聊到相关的事再提，或者干脆换个话题。`
-          });
-          return;
-        }
-        if (req.method === 'GET' && url.pathname === '/api/socialV2/permits') {
-          // 控制台展示用：当前有效授权 + 最近申请记录。不暴露 agent 令牌。
-          const key = String(url.searchParams.get('key') ?? '').trim();
-          const permit = readPermits();
-          const grants = Object.entries(permit.grants).flatMap(([k, perScope]) =>
-            Object.entries(perScope).map(([scope, g]) => ({ key: k, scope, label: PERMIT_SCOPES[scope]?.label ?? scope, expiresAt: g.expiresAt, remainingText: formatRemaining(g.expiresAt - Date.now()), why: g.why }))
-          ).filter((g) => !key || g.key === key);
-          const requests = Object.values(permit.requests).filter((r) => !key || r.key === key).slice(-30);
-          sendJson({ ok: true, grants, requests });
-          return;
-        }
-        if (req.method === 'POST' && url.pathname === '/api/socialV2/revoke-permit') {
-          // 主人可以随时收回（控制台按钮 / 他直接说「不许玩了」）。
-          const body = await readBody();
-          const key = String(body.key ?? '').trim();
-          const scope = String(body.scope ?? '').trim();
-          if (!key || !/^(group|private):\d+$/.test(key)) { sendJson({ ok: false, error: 'key 格式应为 group:群号 或 private:QQ号' }, 400); return; }
-          const permit = readPermits();
-          let removed = 0;
-          if (scope) {
-            if (permit.grants[key]?.[scope]) { delete permit.grants[key][scope]; removed = 1; }
-          } else {
-            removed = Object.keys(permit.grants[key] ?? {}).length;
-            delete permit.grants[key];
-          }
-          writePermits(prunePermits(permit));
-          // 正在等答复的申请也一并作废。
-          const p = pendingPermitRequests.get(key);
-          if (p && (!scope || p.scope === scope)) {
-            p.resolve({ allowed: false, reason: 'revoked' });
-            pendingPermitRequests.delete(key);
-          }
-          log(`[permit] ${key} 授权已收回（${scope || '全部'}，${removed} 条）`);
-          sendJson({ ok: true, removed });
-          return;
-        }
-        // 管理员**主动**发一张牌子，不等她来申请。
-        // 用途：你此刻就想让她去玩会儿（或她正卡在"要申请"上懒得开口），
-        // 与其等一条 QQ 申请，不如直接批。跟"她申请→你同意"走的是同一张授权表、
-        // 同一个守卫，所以批出去的程序效果完全一致，只是不必走那一轮问答。
-        if (req.method === 'POST' && url.pathname === '/api/socialV2/grant-permit') {
-          const body = await readBody();
-          const scope = String(body.scope ?? '').trim();
-          if (!isKnownScope(scope)) {
-            sendJson({ ok: false, error: `未知的授权类别 "${scope}"；只能批准：${Object.keys(PERMIT_SCOPES).join(' / ')}` }, 400);
-            return;
-          }
-          // 🔴 只给管理员私聊发牌。这不是"多此一举的校验"——授权表是按会话 key 存的，
-          //    若允许给 group:… 写一条，就等于开了一个"群里也能玩手机"的口子，
-          //    而守卫是按 key 查表的，它会认。
-          const key = `private:${String(cfg.ownerQQ ?? '')}`;
-          if (!cfg.ownerQQ) { sendJson({ ok: false, error: '未配置 ownerQQ，无法签发授权' }, 400); return; }
-          const permit = readPermits();
-          const { expiresAt } = resolveGrant(scope, { requestedMs: Number(body.minutes) > 0 ? Number(body.minutes) * 60 * 1000 : undefined });
-          if (!permit.grants[key]) permit.grants[key] = {};
-          permit.grants[key][scope] = {
-            expiresAt,
-            grantedAt: Date.now(),
-            requestId: 'console',
-            why: String(body.why ?? '控制台直接批准').slice(0, 120)
-          };
-          // 控制台发牌同样要拉起模拟器（否则批了她也玩不了）。
-          let emulatorNote = '';
-          if (scope === 'phone' && emulatorCfg().enabled) {
-            const emu = emulatorStartForGrant();
-            if (emu.started) {
-              permit.grants[key][scope].weStartedEmulator = true;
-              emulatorNote = '；模拟器已启动';
-            }
-          }
-          writePermits(prunePermits(permit));
-          log(`[permit] 控制台直接批准「${PERMIT_SCOPES[scope].label}」给 ${key}，至 ${new Date(expiresAt).toLocaleString()}${emulatorNote}`);
-          appendActivity(`${key} [permit] 控制台批准「${PERMIT_SCOPES[scope].label}」，有效期 ${formatRemaining(expiresAt - Date.now())}`);
-          // 如果说好要告诉她一声（"我准了，去玩吧"），就在她私聊里说一句。
-          // 她的申请工具此刻没在等（这是主动发牌），所以只能走普通消息。
-          if (body.notify === true) {
-            const label = PERMIT_SCOPES[scope].label;
-            void sendToQQ(key, `✅ 批了，去${label === '刷B站' ? '刷会儿 B站' : '玩会儿手机'}吧，到 ${new Date(expiresAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} 前都算数。`).catch(() => {});
-          }
-          sendJson({
-            ok: true,
-            key,
-            scope,
-            expiresAt,
-            remainingText: formatRemaining(expiresAt - Date.now()),
-            grants: Object.entries(permit.grants[key] ?? {}).map(([s, g]) => ({
-              scope: s, label: PERMIT_SCOPES[s]?.label ?? s, expiresAt: g.expiresAt, remainingText: formatRemaining(g.expiresAt - Date.now())
-            }))
-          });
-          return;
-        }
+
         if (req.method === 'POST' && url.pathname === '/api/socialV2/wake') {
           const body = await readBody();
           const key = String(body.key ?? '').trim();
@@ -9101,6 +9256,13 @@ async function main() {
             }
             const data = qb.data ?? {};
             const msglist = Array.isArray(data.msglist) ? data.msglist : [];
+            // ⭐ 2026-11-04：记下"她翻过空间"。读端点本身是免费的，这个时间戳只用于
+            //    每轮提示里那一行"你上次翻过空间是 N 天前"——因为 `qzoneWriteAt` 只有
+            //    真写过才有值，而"她从没写过"恰恰是最需要被提醒的情况。
+            try {
+              const stLook = getSocialV2State(key);
+              if (stLook) { stLook.lastQzoneLookAt = Date.now(); saveSocialV2State(); }
+            } catch { /* 记账失败不影响返回，别让读操作因为这个失败 */ }
             sendJson({
               ok: true,
               key,
@@ -10389,6 +10551,164 @@ async function main() {
           }
           return;
         }
+        // ── 让她真的「看一眼」视频（storyboard 宫格图）──────────────────────
+        //
+        // 为什么在桥接里做而不是给她挂 DSH 的插件：`video_storyboard` 是 profile 级
+        // bundle，QQ 会话的 preset 里挂了它就会违反「仿真会话没有本地工具」这条
+        // 设计不变量（L7）——她能借它去读本机任意文件。放在桥接里，输入面就只有
+        // 「一个链接」或「主人给过的本地路径」，而且额度、开关、会话范围都跟别的
+        // QQ 能力一样受控。
+        //
+        // 代价：她拿到的是**一次性**的结果（宫格图 + 清单），不能像 DSH 里那样
+        // 反复 video_zoom 追细节。够用——群里有人甩个链接时她要的是"知道这片讲什么"。
+        if (req.method === 'POST' && url.pathname === '/api/video/watch') {
+          const body = await readBody();
+          const key = String(body.key ?? '').trim();
+          if (!key) { sendJson({ ok: false, error: 'key 不能为空' }, 400); return; }
+          if (req.headers['x-agent-token'] && !agentTokenOk(key, req.headers['x-agent-token'])) { sendJson({ ok: false, error: 'agent token 无效' }, 403); return; }
+          if (req.headers['x-agent-token'] && !v2SessionAllowed(key)) { sendJson({ ok: false, error: '目标不在当前模式允许范围内' }, 403); return; }
+          if (req.headers['x-agent-token'] && !v2ToolEnabled('watchVideo')) { sendJson(disabledByOwner('qq_watch_video', 'watchVideo'), 403); return; }
+
+          const input = String(body.input ?? '').trim();
+          if (!input) { sendJson({ ok: false, error: '要给她一个视频链接（B站/YouTube 都行）或本机文件路径' }, 400); return; }
+          // 本地路径只给主人：别人的私聊/群里让她读本机文件，等于把整台机器变成
+          // 一个「给我看看这个文件」的接口 —— 哪怕只是视频，也不该由陌生人指定。
+          const isHttp = /^https?:\/\//i.test(input);
+          if (!isHttp && key !== `private:${cfg.ownerQQ}`) {
+            sendJson({ ok: false, error: '只有主人能让她看本机文件；这里请给 http(s) 链接' }, 403);
+            return;
+          }
+
+          const quota = videoQuotaOf(key);
+          if (quota.left <= 0) {
+            sendJson({ ok: false, error: `今天看视频的次数用完了（每人每天 ${quota.limit} 次）。明天再来，或者让主人调高 socialV2.video.dailyPerSession。`, remaining: 0 }, 429);
+            return;
+          }
+
+          const cliPath = resolveStoryboardCli({ dshHome: dshHomeDir(), override: cfg.video?.cliPath });
+          if (!cliPath) {
+            sendJson({ ok: false, error: '没找到看视频插件（dsh-video-storyboard 的 bin/storyboard.mjs）。让主人把它装到 ~/.dsh/src/ 下，或在 config.json 的 video.cliPath 里指过去。' }, 503);
+            return;
+          }
+          const vidCfg = cfg.video ?? {};
+          // 默认给 12 帧：0.6 的 auto 按时长派图（240s/张），一条 10 分钟的片子
+          // 会排出 60+ 帧塞进一张图，每格只有 95×49，等于什么都没看清。
+          // 12 帧在整片和片段上都还能认出"这一格是什么"（cell≈150×95）；
+          // 想要更细就自己传 frames，想更粗就传小一点。
+          const framesWanted = Number(body.frames) > 0 ? Number(body.frames) : 12;
+          const run = await runVideoStoryboard({
+            cliPath,
+            input,
+            from: Number(body.from) || 0,
+            to: Number(body.to) || 0,
+            frames: framesWanted,
+            strategy: String(body.strategy || ''),
+            maxSheets: Number(body.maxSheets) > 0 ? Number(body.maxSheets) : 1,
+            detail: String(body.detail || 'med'),
+            timeoutMs: Math.max(30000, Number(vidCfg.timeoutMs) || 300000)
+          });
+          if (!run.ok) {
+            sendJson({ ok: false, error: run.error, log: String(run.log ?? '').slice(-1200) }, 502);
+            return;
+          }
+          if (run.bytes > MAX_MEDIA_BYTES()) {
+            sendJson({ ok: false, error: `宫格图 ${formatBytes(run.bytes)} 超过上限，没发出去` }, 502);
+            return;
+          }
+          noteVideoUsed(key, { bytes: run.bytes });
+          sendJson({
+            ok: true,
+            key,
+            bytes: run.bytes,
+            ms: run.ms,
+            text: run.manifest,
+            image: { mimeType: 'image/png', data: run.buffer.toString('base64') },
+            quota: videoQuotaOf(key)
+          });
+          return;
+        }
+        // ⭐ 看屏幕（2026-11-03）：把她"看不见刚才发生了什么"这一块补上。
+        //   与 host-screenshot 的区别：那个是**一帧**（现在屏幕上是什么），
+        //   这个是**一段时间**（这几分钟里画面变了几次、每次变成什么样），
+        //   所以她才接得住"我刚才在干嘛""你看到我怎么操作的吗"这类话。
+        //
+        //   权限比看视频更严：屏幕里可能有密码、私信、别人的聊天窗口。
+        //   看视频是「管理员私聊 + 群聊」，这个只放管理员私聊 —— 三道闸：
+        //   守卫（OWNER_PRIVATE_ONLY）、watchScreen 总开关、下面的 key 判定。
+        if (req.method === 'POST' && url.pathname === '/api/screen/watch') {
+          const body = await readBody();
+          const key = String(body.key ?? '').trim();
+          if (!key) { sendJson({ ok: false, error: 'key 不能为空' }, 400); return; }
+          if (req.headers['x-agent-token'] && !agentTokenOk(key, req.headers['x-agent-token'])) { sendJson({ ok: false, error: 'agent token 无效' }, 403); return; }
+          if (req.headers['x-agent-token'] && !v2SessionAllowed(key)) { sendJson({ ok: false, error: '目标不在当前模式允许范围内' }, 403); return; }
+          if (req.headers['x-agent-token'] && !v2ToolEnabled('watchScreen')) { sendJson(disabledByOwner('qq_watch_screen', 'watchScreen'), 403); return; }
+          // 老规矩：守卫是第一道，这里再判一次 —— 群/别人的私聊里让她看主人屏幕，
+          // 等于把"他现在在干什么"直接播给群里。
+          if (key !== `private:${cfg.ownerQQ}`) {
+            sendJson({ ok: false, error: '看屏幕只在主人私聊里用：那上面可能有密码、私信、别人的窗口' }, 403);
+            return;
+          }
+
+          const scCfg = cfg.screen ?? {};
+          const asked = Number(body.seconds);
+          const want = Math.min(
+            Math.max(Number.isFinite(asked) && asked > 0 ? asked : scCfg.defaultSeconds || SCREEN_LIMITS.defaultSeconds, SCREEN_LIMITS.minSeconds),
+            Math.max(SCREEN_LIMITS.minSeconds, Math.min(SCREEN_LIMITS.maxSeconds, Number(scCfg.maxSeconds) || SCREEN_LIMITS.maxSeconds))
+          );
+          const started = Date.now();
+          // 抓屏是同步阻塞式的（ffmpeg 管道 + 每帧打分），所以整个 handler 会被
+          // 占住 want 秒。桥接别的请求不受影响（Node 单线程但 ffmpeg 是子进程，
+          // 打分开销 ~0.2ms/帧，实测 12 秒窗口 CPU 占用很低）。
+          const res = await watchScreen({
+            seconds: want,
+            quality: String(body.quality || 'standard'),
+            pace: String(body.pace || 'normal'),
+            ffmpegPath: String(scCfg.ffmpegPath || ''),
+            mouse: body.mouse !== false,
+            maxSheets: Number(body.maxSheets) > 0 ? Number(body.maxSheets) : 1,
+            timeoutMs: Math.max(15000, (want + 30) * 1000)
+          });
+          if (!res.ok) {
+            sendJson({ ok: false, error: res.error, log: String(res.log ?? '').slice(-1200) }, 502);
+            return;
+          }
+          const sheet = res.sheets?.[0];
+          if (!sheet?.png) {
+            sendJson({ ok: false, error: '这段时间内画面一点没变，拼不出图（可以把 seconds 拉长一点，或者换成 pace:"dense"）' }, 502);
+            return;
+          }
+          // 一次调用可能出**多张**图（秒数长、变化多时按 4 帧一张分开拼）。
+          // 每张单独查大小上限，超限就截断并在文本里说明，而不是整条请求失败。
+          const images = [];
+          let bytes = 0;
+          let dropped = 0;
+          for (const sh of res.sheets ?? []) {
+            if (!sh?.png) continue;
+            if (sh.png.length > MAX_MEDIA_BYTES() || images.length >= 4) { dropped += 1; continue; }
+            images.push({ mimeType: 'image/png', data: sh.png.toString('base64') });
+            bytes += sh.png.length;
+          }
+          if (images.length === 0) {
+            sendJson({ ok: false, error: `拼图 ${formatBytes(sheet.png.length)} 超过上限，没发出去` }, 502);
+            return;
+          }
+          sendJson({
+            ok: true,
+            key,
+            seconds: res.seconds,
+            engine: res.engine,
+            ms: Date.now() - started,
+            bytes,
+            // 给她一段人话：看了多久、变的几次、每格是什么时刻。
+            text: describeWatch(res) + (dropped ? `\n（另有 ${dropped} 张图超过大小上限没发出来）` : ''),
+            stats: res.stats,
+            frames: sheet.frames.map((f) => ({ t: f.t })),
+            images,
+            // 兼容旧字段：单张时一样可用。
+            image: images[0]
+          });
+          return;
+        }
         if (req.method === 'POST' && url.pathname === '/api/socialV2/wait') {
           const body = await readBody();
           const key = String(body.key ?? '').trim();
@@ -11172,11 +11492,14 @@ async function main() {
             const t0 = Date.now();
             let r;
             try {
+              // ⭐ 异步（2026-11-03）：原来是 spawnSync，一条长命令（比如打包、编译）
+              //    会把整个桥接卡住几十秒 —— 期间收不到消息、回不了话。
+              //    改成 runProcessEncoded 之后形状不变，只是不再阻塞事件循环。
               r = kind === 'powershell'
-                ? spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command],
-                  { cwd: workdir(), timeout: timeoutMs, encoding: 'buffer', windowsHide: true, maxBuffer: 64 * 1024 * 1024 })
-                : spawnSync('cmd.exe', ['/d', '/s', '/c', command],
-                  { cwd: workdir(), timeout: timeoutMs, encoding: 'buffer', windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
+                ? await runProcessEncoded('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command],
+                  { cwd: workdir(), timeoutMs })
+                : await runProcessEncoded('cmd.exe', ['/d', '/s', '/c', command],
+                  { cwd: workdir(), timeoutMs });
             } catch (error) {
               sendJson({ ok: false, error: `命令没能启动：${error?.message ?? error}` });
               return;
@@ -11258,6 +11581,264 @@ async function main() {
             const st = fs.statSync(file);
             log(`[host] 写文件（${append ? '追加' : '覆盖'}）：${file}（${st.size} 字节）`);
             sendJson({ ok: true, path: file, mode: append ? 'append' : 'overwrite', bytes: st.size, chars: content.length });
+            return;
+          }
+
+          // ⭐ 截屏（2026-11-02）：把她"看不见"的那一半补上。
+          //   返回 base64 PNG，MCP 侧（qq_screenshot）把它变成 image 内容块直接喂给她。
+          //   ⚠️ 默认截**整个虚拟屏幕**（多显示器一起），不是主屏 —— 她的窗口可能在第二块上。
+          //   ⭐ 传了 hwnd 就只截那一个窗口（建议 4）：图小、看得清、少烧 token。
+          if (url.pathname === '/api/socialV2/host-screenshot') {
+            const t0 = Date.now();
+            const shot = path.join(os.tmpdir(), `qq-shot-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.png`);
+            const hwnd = String(body.hwnd ?? '').trim();
+            const onlyWin = /^\d+$/.test(hwnd);
+            // 截整屏 vs 截单窗：只有取区域那几句不同，其余（前台审计、光标）共用。
+            const areaScript = onlyWin
+              ? `$h = [IntPtr]::new([Int64]${hwnd})
+$r = New-Object QQBridgeShot+RECT
+if (-not [QQBridgeShot]::GetWindowRect($h, [ref]$r)) { throw '拿不到窗口矩形（窗口可能已经关了）' }
+$vx = $r.Left; $vy = $r.Top
+$vw = $r.Right - $r.Left; $vh = $r.Bottom - $r.Top
+if ($vw -le 0 -or $vh -le 0) { throw '窗口尺寸是 0（可能最小化了）' }
+$vs = New-Object psobject -Property @{ Left = $vx; Top = $vy; Width = $vw; Height = $vh }
+Write-Output ("origin:" + $vx + "," + $vy)`
+              : `$vs = [System.Windows.Forms.SystemInformation]::VirtualScreen
+Write-Output "origin:0,0"`;
+            const script = `$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms,System.Drawing
+Add-Type -TypeDefinition @'
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public class QQBridgeShot {
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowTextW(IntPtr h, StringBuilder s, int max);
+  [DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(IntPtr h, out int pid);
+  public static string Fg() {
+    IntPtr h = GetForegroundWindow();
+    if (h == IntPtr.Zero) return "0|0|";
+    int pid; GetWindowThreadProcessId(h, out pid);
+    var sb = new StringBuilder(512);
+    int n = GetWindowTextW(h, sb, 512);
+    return string.Format("{0}|{1}|{2}", h.ToInt64(), pid, n > 0 ? sb.ToString() : "");
+  }
+}
+'@
+${areaScript}
+$bmp = New-Object System.Drawing.Bitmap($vs.Width, $vs.Height)
+$g = [System.Drawing.Graphics]::FromImage($bmp)
+$g.CopyFromScreen($vs.Left, $vs.Top, 0, 0, $bmp.Size)
+$bmp.Save('${shot.replace(/'/g, "''")}', [System.Drawing.Imaging.ImageFormat]::Png)
+$g.Dispose(); $bmp.Dispose()
+Write-Output "$($vs.Width)x$($vs.Height)"
+$p = [System.Windows.Forms.Cursor]::Position
+Write-Output "cursor:$($p.X),$($p.Y)"
+# 审计：这张图拍的时候，前台是谁（出事了能对上"她当时在看哪个窗口"）。
+# 用 try 包住 —— 拿不到前台窗口不该让整张截图失败。
+try { Write-Output ("fg:" + [QQBridgeShot]::Fg()) } catch { Write-Output "fg:0|0|" }`;
+            const r = await runPowerShellEncoded(script, { timeoutMs: 60000 });
+            if (r.error || r.status !== 0) {
+              sendJson({ ok: false, error: `截屏失败：${decodeShellOutput(r.stderr || r.stdout).slice(0, 600) || r.error?.message || `exit ${r.status}`}` });
+              return;
+            }
+            let buf;
+            try { buf = fs.readFileSync(shot); } catch (error) {
+              sendJson({ ok: false, error: `截屏文件读不到：${error?.message ?? error}`, path: shot });
+              return;
+            }
+            const lines = decodeShellOutput(r.stdout).trim().split(/\r?\n/).filter(Boolean);
+            const size = (lines.find((l) => /^\d+x\d+$/.test(l)) ?? '').split('x').map(Number);
+            const cursorLine = lines.find((l) => l.startsWith('cursor:'));
+            const cursor = cursorLine ? { x: Number(cursorLine.slice(7).split(',')[0]), y: Number(cursorLine.slice(7).split(',')[1]) } : null;
+            // 审计：截图那一瞬的前台窗口。出事了要能回答"她当时在看谁"。
+            const fgLine = lines.find((l) => l.startsWith('fg:'));
+            const fgRaw = fgLine ? fgLine.slice(3).split('|') : null;
+            const foreground = fgRaw ? { hwnd: fgRaw[0], pid: Number(fgRaw[1]) || 0, title: fgRaw.slice(2).join('|') } : null;
+            const originLine = lines.find((l) => l.startsWith('origin:'));
+            const originRaw = originLine ? originLine.slice(7).split(',').map(Number) : null;
+            const origin = originRaw && originRaw.every(Number.isFinite) ? { x: originRaw[0], y: originRaw[1] } : { x: 0, y: 0 };
+            log(`[host] 截屏 ${size[0] ?? '?'}x${size[1] ?? '?'} ${buf.length} 字节，${Date.now() - t0}ms${onlyWin ? `（只截窗口 ${hwnd}）` : ''} · 前台「${foreground?.title || '（无）'}」`);
+            try { fs.unlinkSync(shot); } catch {}
+            sendJson({
+              ok: true,
+              mimeType: 'image/png',
+              width: size[0] ?? null,
+              height: size[1] ?? null,
+              bytes: buf.length,
+              cursor,
+              foreground,
+              origin,
+              hwnd: onlyWin ? hwnd : null,
+              ms: Date.now() - t0,
+              data: buf.toString('base64')
+            });
+            return;
+          }
+
+          // ⭐ 鼠标 / 键盘（2026-11-02）。一个端点吃下所有输入动作，免得工具表爆炸。
+          //   坐标是**虚拟屏幕绝对坐标**（左上角 = VirtualScreen.Left/Top），
+          //   和截屏用的是同一个坐标系 —— 她照着截图量的点能直接用。
+          if (url.pathname === '/api/socialV2/host-input') {
+            const action = String(body.action ?? '').trim();
+            const num = (v) => Number(v);
+            const step = Math.min(Math.max(num(body.stepMs) || 0, 0), 2000);
+            const wait = step ? `Start-Sleep -Milliseconds ${step}\n` : '';
+            const x = Math.round(num(body.x));
+            const y = Math.round(num(body.y));
+            const moveTo = (px, py) => `[QQBridgeInput]::Move(${px}, ${py})\n${wait}`;
+            let script = null;
+            switch (action) {
+              case 'move':
+                script = moveTo(x, y);
+                break;
+              case 'click':
+                script = `${moveTo(x, y)}[QQBridgeInput]::MouseLeftDown(); Start-Sleep -Milliseconds 30; [QQBridgeInput]::MouseLeftUp()\n`;
+                break;
+              case 'double_click':
+                script = `${moveTo(x, y)}[QQBridgeInput]::MouseLeftDown(); Start-Sleep -Milliseconds 30; [QQBridgeInput]::MouseLeftUp(); Start-Sleep -Milliseconds 80; [QQBridgeInput]::MouseLeftDown(); Start-Sleep -Milliseconds 30; [QQBridgeInput]::MouseLeftUp()\n`;
+                break;
+              case 'right_click':
+                script = `${moveTo(x, y)}[QQBridgeInput]::MouseRightDown(); Start-Sleep -Milliseconds 30; [QQBridgeInput]::MouseRightUp()\n`;
+                break;
+              case 'drag': {
+                const x2 = Math.round(num(body.x2));
+                const y2 = Math.round(num(body.y2));
+                if (![x, y, x2, y2].every(Number.isFinite)) { sendJson({ ok: false, error: 'drag 需要 x/y/x2/y2' }, 400); return; }
+                script = `${moveTo(x, y)}[QQBridgeInput]::MouseLeftDown()\nStart-Sleep -Milliseconds 120\n[QQBridgeInput]::Move(${x2}, ${y2})\nStart-Sleep -Milliseconds 120\n[QQBridgeInput]::MouseLeftUp()\n`;
+                break;
+              }
+              case 'scroll': {
+                const delta = Math.round(num(body.delta) || -120);
+                script = (Number.isFinite(x) && Number.isFinite(y) ? moveTo(x, y) : '')
+                  + `[QQBridgeInput]::Scroll(${delta})\n`;
+                break;
+              }
+              case 'key': {
+                // 支持 "Enter" / "ctrl+c" / "alt+tab" / 单字符
+                // ⚠️ 字段名是 `keyCombo` 而不是 `key`：body.key 是**会话 key**
+                //   （private:QQ号），早先用 `key` 传组合键会把它覆盖掉，
+                //   于是“按 esc”变成“agent token 无效”。
+                const combo = String(body.keyCombo ?? '').trim();
+                if (!combo) { sendJson({ ok: false, error: 'key 不能为空' }, 400); return; }
+                const keys = combo.split('+').map((s) => s.trim()).filter(Boolean);
+                const down = keys.map((k) => `[QQBridgeInput]::KeyDown(${VK_EXPR(k)})`).join('\n');
+                const up = [...keys].reverse().map((k) => `[QQBridgeInput]::KeyUp(${VK_EXPR(k)})`).join('\n');
+                script = `${down}\nStart-Sleep -Milliseconds 40\n${up}\n`;
+                break;
+              }
+              case 'type': {
+                const text = String(body.text ?? '');
+                if (!text) { sendJson({ ok: false, error: 'text 不能为空' }, 400); return; }
+                // 用 SendInput 直接投递 Unicode 扫描码：中文也能打，且**不碰剪贴板**
+                // （用剪贴板绕中文会覆盖主人自己的内容，那是不能接受的副作用）。
+                // 正文里可能有 ' $ ` 这些 PowerShell 特殊字符，所以走 base64 传，
+                // 避免任何转义问题 —— 中文/emoji/引号全都安全。
+                const b64 = Buffer.from(text, 'utf8').toString('base64');
+                script = `$b = [System.Convert]::FromBase64String('${b64}')
+$t = [System.Text.Encoding]::UTF8.GetString($b)
+$n = [QQBridgeInput]::TypeUnicode($t)
+Write-Output "typed:$n"
+`;
+                break;
+              }
+              default:
+                sendJson({ ok: false, error: `不认识的输入动作：${action || '（空）'}（支持 move/click/double_click/right_click/drag/scroll/key/type）` }, 400);
+                return;
+            }
+            const wrapped = wrapInputScript(script);
+            const r = await runPowerShellEncoded(wrapped, { timeoutMs: Math.min(120000, 30000 + step) });
+            const rawOut = decodeShellOutput(r.stdout);
+            const errText = decodeShellOutput(r.stderr || r.stdout);
+            if (r.error || r.status !== 0) {
+              sendJson({ ok: false, error: `输入动作失败：${errText.slice(0, 800) || r.error?.message || `exit ${r.status}`}` });
+              return;
+            }
+            const marks = parseFgMarks(rawOut);
+            const typed = /typed:(\d+)/.exec(marks.rest)?.[1];
+            const where = marks.before?.title ? `「${marks.before.title}」` : '（没有前台窗口）';
+            log(
+              `[host] 输入 ${action}` +
+                (action === 'key' ? ` ${body.keyCombo}` : '') +
+                (['click', 'move', 'drag', 'double_click', 'right_click'].includes(action) ? ` (${x},${y})` : '') +
+                (action === 'drag' ? ` → (${Math.round(num(body.x2))},${Math.round(num(body.y2))})` : '') +
+                (action === 'scroll' ? ` delta=${body.delta ?? -120}` : '') +
+                (action === 'type' ? ` ${typed ?? '?'} 字符` : '') +
+                ` → ${where}` +
+                (marks.before?.title !== marks.after?.title && marks.after?.title ? ` ⇒ 之后前台变成「${marks.after.title}」` : '')
+            );
+            sendJson({
+              ok: true,
+              action,
+              ...(action === 'key' ? { keyCombo: body.keyCombo } : {}),
+              ...(['click', 'move', 'drag', 'double_click', 'right_click'].includes(action) ? { x, y } : {}),
+              ...(action === 'type' ? { typed: typed ? Number(typed) : null } : {}),
+              foreground: marks.before,
+              foregroundAfter: marks.after
+            });
+            return;
+          }
+
+          // ⭐ 列出当前开着的窗口（2026-11-02）：她要点什么之前，得先知道点哪。
+          //   只返回可见、有标题、非工具窗口的顶层窗口；带屏幕矩形和进程名。
+          if (url.pathname === '/api/socialV2/host-windows') {
+            const script = `$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -TypeDefinition @'
+using System;
+using System.Text;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+public class QQBridgeWin {
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr l);
+  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowTextW(IntPtr hWnd, StringBuilder s, int max);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
+  [DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(IntPtr hWnd, out int pid);
+  [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr hWnd, uint cmd);
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+  public static List<string> List() {
+    var outList = new List<string>();
+    EnumWindows((h, l) => {
+      if (!IsWindowVisible(h)) return true;
+      if (GetWindow(h, 4) != IntPtr.Zero) return true; // 4 = GW_OWNER：跳过工具窗口
+      var sb = new StringBuilder(512);
+      int n = GetWindowTextW(h, sb, 512);
+      if (n <= 0) return true;
+      RECT r; if (!GetWindowRect(h, out r)) return true;
+      if (r.Left <= -32000 || r.Top <= -32000) return true; // 最小化的窗口不列（坐标是 -32000）
+      int pid; GetWindowThreadProcessId(h, out pid);
+      outList.Add(string.Format("{0}|{1}|{2}|{3}|{4}|{5}|{6}", h.ToInt64(), pid, r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top, sb.ToString()));
+      return true;
+    }, IntPtr.Zero);
+    return outList;
+  }
+}
+'@
+[QQBridgeWin]::List() | ForEach-Object { Write-Output $_ }`;
+            const r = await runPowerShellEncoded(script, { timeoutMs: 45000 });
+            if (r.error || r.status !== 0) {
+              sendJson({ ok: false, error: `列窗口失败：${decodeShellOutput(r.stderr || r.stdout).slice(0, 600) || r.error?.message}` });
+              return;
+            }
+            const rows = decodeShellOutput(r.stdout).split(/\r?\n/).filter(Boolean);
+            const windows = [];
+            for (const row of rows) {
+              const parts = row.split('|');
+              if (parts.length < 6) continue;
+              const [hwnd, pid, left, top, w, h, ...rest] = parts;
+              const title = rest.join('|');
+              windows.push({
+                hwnd,
+                pid: Number(pid),
+                title,
+                rect: { x: Number(left), y: Number(top), width: Number(w), height: Number(h) }
+              });
+            }
+            sendJson({ ok: true, count: windows.length, windows });
             return;
           }
 
@@ -12991,13 +13572,6 @@ async function main() {
   // 二代会话见过的 forward id（有界，避免 recentMessages 滚动淘汰后无法读取刚见过的转发）
   const seenForwardIds = new Map(); // key -> Set<string>
 
-  // ── 「向我申请」授权（手机 / 刷B站）─────────────────────────────────────────
-  // 同一会话同时只挂一个待答复的申请：key -> { request, scope, resolve, timer }
-  const pendingPermitRequests = new Map();
-  // 等他回话的上限。给足 10 分钟 —— 他可能在开会/吃饭，不在电脑前；
-  // 但也不能无限挂着把她的回合吊死（manifest 里 toolCallTimeoutMs 也是这个量级）。
-  const PERMIT_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
-
   // ── 模拟器（MuMu）随授权自动开关 ────────────────────────────────────────────
   //
   // 主人 2026-10-24 的要求：「授权到期时自动关闭模拟器」。
@@ -13080,112 +13654,9 @@ async function main() {
    * 授权生效时把模拟器拉起来。返回 {started:boolean, note:string}。
    * `started` 表示"**这一次是我们开的**"，到期时据此决定要不要关。
    */
-  function emulatorStartForGrant() {
-    const ec = emulatorCfg();
-    if (!ec.enabled) return { started: false, note: '模拟器自动开关未启用' };
-    if (emulatorRunning()) {
-      // 本来就是开着的 ⇒ 不记"我们开的"，到期也不关它。这是最要紧的一条。
-      return { started: false, note: '模拟器原本就在运行，到期不关' };
-    }
-    const r = runEmulatorManager(['control', '-v', ec.vmIndex, 'launch'], ec.cmdTimeoutMs);
-    if (!r.ok) {
-      log(`[emulator] 启动失败：${r.error || r.err || r.out || `errcode=${r.errcode}`}`);
-      return { started: false, note: '启动失败' };
-    }
-    const deadline = Date.now() + ec.launchTimeoutMs;
-    while (Date.now() < deadline) {
-      if (emulatorRunning()) {
-        log(`[emulator] 已启动实例 ${ec.vmIndex}（授权生效时拉起，到期会自动关）`);
-        appendActivity(`[emulator] 已启动模拟器实例 ${ec.vmIndex}`);
-        return { started: true, note: '已启动' };
-      }
-      sleepMs(1500);
-    }
-    // 起了但没等到 android_started：仍然记为"我们开的"，否则会漏关。
-    log(`[emulator] 启动命令已发，但 ${ec.launchTimeoutMs / 1000}s 内没等到就绪（仍会在到期时尝试关闭）`);
-    return { started: true, note: '启动超时（仍会在到期时关闭）' };
-  }
 
   /** 授权到期/收回时关掉——**只关我们自己开的那个**。 */
-  function emulatorStopIfWeStarted(flagSet, key, scope) {
-    const ec = emulatorCfg();
-    if (!ec.enabled) return;
-    if (!flagSet || !flagSet.weStartedEmulator) {
-      // 不是我们开的（原本就在跑 / 没启用）⇒ 不碰。
-      return;
-    }
-    // 只有 phone 这一档才会动模拟器；bili 到期不该关手机。
-    if (String(scope ?? '') !== 'phone') return;
-    // 同一个私聊还有别的有效授权（比如主人又续了一次）⇒ 别关，等他这次也过期。
-    const live = activeGrant(readPermits(), key, 'phone');
-    if (live) {
-      log(`[emulator] ${key} 还有未到期的 phone 授权（剩 ${formatRemaining(live.expiresAt - Date.now())}），先不关模拟器`);
-      return;
-    }
-    const r = runEmulatorManager(['control', '-v', ec.vmIndex, 'shutdown'], ec.cmdTimeoutMs);
-    if (r.ok) {
-      log(`[emulator] ${key} 的 phone 授权已结束，已关闭模拟器实例 ${ec.vmIndex}`);
-      appendActivity(`[emulator] phone 授权结束，已关闭模拟器 ${ec.vmIndex}`);
-    } else {
-      log(`[emulator] 关闭失败：${r.error || r.err || r.out || `errcode=${r.errcode}`}`);
-    }
-  }
 
-  /** 把「这次是不是我们开的」记进授权记录里（跨重启也留着）。 */
-  function markGrantEmulatorFlag(key, scope, started) {
-    const permit = readPermits();
-    const g = permit?.grants?.[key]?.[scope];
-    if (!g) return;
-    g.weStartedEmulator = !!started;
-    try { writePermits(prunePermits(permit)); } catch {}
-  }
-
-  /** 授权到期检查：找出已经过期、且当初是我们开的模拟器的 phone 授权，关掉它。 */
-  function sweepExpiredEmulatorGrants() {
-    const ec = emulatorCfg();
-    if (!ec.enabled) return;
-    let raw = null;
-    try { raw = readJsonSafe(PERMIT_FILE, null); } catch { raw = null; }
-    if (!raw || typeof raw !== 'object') return;
-    const now = Date.now();
-    let changed = false;
-    for (const [key, perScope] of Object.entries(raw.grants ?? {})) {
-      const g = perScope?.phone;
-      if (!g || !g.weStartedEmulator) continue;
-      if (Number(g.expiresAt) > now) continue;
-      // 已过期且是我们开的 ⇒ 关。
-      const live = activeGrant(readPermits(), key, 'phone');
-      if (!live) {
-        const r = runEmulatorManager(['control', '-v', ec.vmIndex, 'shutdown'], ec.cmdTimeoutMs);
-        if (r.ok) {
-          log(`[emulator] phone 授权到期（${key}），已自动关闭模拟器实例 ${ec.vmIndex}`);
-          appendActivity(`[emulator] phone 授权到期，已自动关闭模拟器 ${ec.vmIndex}`);
-        } else {
-          log(`[emulator] 到期关闭失败：${r.error || r.err || r.out || `errcode=${r.errcode}`}`);
-        }
-      }
-      delete g.weStartedEmulator;
-      changed = true;
-    }
-    // 顺带清理：过期的整个 grant 由 prunePermits 收走（这里只在有变化时回写）。
-    if (changed) {
-      try { writePermits(prunePermits(raw)); } catch {}
-    }
-  }
-
-  function readPermits() {
-    // readPermitFile 的第二参是"读并解析"的回调；这里传 readJsonSafe 并把 fallback 固定成 null。
-    return readPermitFile(PERMIT_FILE, (f) => readJsonSafe(f, null));
-  }
-
-  function writePermits(obj) {
-    try {
-      writePermitFile(PERMIT_FILE, obj);
-    } catch (error) {
-      log(`[permit] 写授权文件失败：${error?.message ?? error}`);
-      throw error;
-    }
-  }
 
   // 归一化“指定群友发言唤醒”名单：
   // - 只保留正整数 QQ 号（字符串形式），拒绝 null/对象/“null”/非法字符等脏数据；
@@ -13492,6 +13963,10 @@ async function main() {
             replyCheckTimer: null,
             proactiveTimer: null,
             lastIncomingAt: Number(val.lastIncomingAt) || 0,
+            // 与 saveSocialV2State 的白名单成对：写进去的必须读回来，
+            // 否则落盘等于没落（qzoneWriteAt 就是这样漏了一整年）。
+            qzoneWriteAt: Number(val.qzoneWriteAt) || 0,
+            lastQzoneLookAt: Number(val.lastQzoneLookAt) || 0,
             preSleepWaitSatisfiedAt: Number(val.preSleepWaitSatisfiedAt) || 0,
             preSleepWaitObservedAt: Number(val.preSleepWaitObservedAt) || 0,
             preSleepWaitAccumMs: Number(val.preSleepWaitAccumMs) || 0,
@@ -13616,6 +14091,12 @@ async function main() {
           // 繁忙期间被暂存的唤醒原因必须持久化：否则桥接在暂存与 turn/end 之间重启，
           // 这些原因会随内存一起消失，触发它的消息就被永久晾在 unread 里再也没人叫醒。
           pendingWakeReasons: Array.isArray(st.pendingWakeReasons) ? st.pendingWakeReasons.slice(-20) : [],
+          // ⭐ 2026-11-04 补两个漏掉的时间戳：
+          //   · qzoneWriteAt —— **原本就不在白名单里**，所以"重启不清零"那句承诺是假的：
+          //     重启后频率闸门的 last 变成 0，她又立刻能写一次，4 小时限制形同虚设。
+          //   · lastQzoneLookAt —— 新加（她翻空间的记录），用于每轮提示里那行"上次是 N 天前"。
+          qzoneWriteAt: Number(st.qzoneWriteAt) || 0,
+          lastQzoneLookAt: Number(st.lastQzoneLookAt) || 0,
           seenForwardIds: Array.from(seenForwardIds.get(key) || []).slice(-1000)
         };
       }
@@ -14170,6 +14651,14 @@ async function main() {
     if (Array.isArray(opts.media) && opts.media.length > 0) {
       const imageParts = await resolveMediaList(opts.media);
       content = [{ type: 'text', text: withSlangContext(promptText) }, ...imageParts];
+    }
+    // 新对话的第一轮：把"刚看到的那一眼"作为图像放进这一轮（不是给路径）。
+    const glance = await takeConversationGlance(key);
+    if (glance) {
+      content = content.concat([
+        { type: 'text', text: `\n【身体的眼睛】这次聊天刚开始，我顺手给你拍了一张（${glance.path}）。你可以直接描述这一帧看到的；想再看新的随时调 body_photo，不受"一次对话一张"的限制。` },
+        { type: 'image', mediaType: 'image/jpeg', data: glance.buffer.toString('base64'), name: 'body-glance.jpg' },
+      ]);
     }
     // ★投递方式：steer 还是 queue（2026-10-22 主人报的问题）★
     //
@@ -15302,7 +15791,7 @@ async function main() {
       const picked = pickRecallRows(rows, q, {
         scope: scope,
         top: Number(rc.top ?? 2),
-        recentDays: Number(rc.recentDays ?? 3),
+        recentDays: Number(rc.recentDays ?? INDEX_RECENT_DAYS),
         cooldownMs: Number(rc.cooldownHours ?? 6) * 3600 * 1000,
         hits: hits
       });
@@ -15381,7 +15870,30 @@ async function main() {
               + '（可以用它做空间写操作，也可以什么都不做）。'
               + `同一个私聊里，两次空间写操作之间至少隔 ${_gGapTxt}`
               + '（桥接在执行期挡，超了返回 429 并告诉你还差多久）。\n'
-              + '⚠️「允许」不等于「必须」：大部分时候什么都不做才是对的，别把它当打卡任务。\n'
+              + '⚠️ 这里**不是**"别发"：有话想说（想到一件事、有情绪、看到什么有意思的）就发，'
+              + '不必是"大事"。连着好几天什么都没发，那不是克制，是把自己关起来了 —— '
+              + '频率有执行期的闸门替你挡，不需要靠"少发"来守规矩。\n'
+              // ⭐ 2026-11-04 加：把"多久没发"直接摆在她眼前。
+              //    起因：主人说她"这么多天没有发任何说说了"。一查 —— 最后一次是 10-26，
+              //    9 天里自主回合给了 20 多次、她一次都没写（qzoneWriteAt 是空的），
+              //    而且她每次翻完空间都知道"上一条停在 10-26"，然后自己决定"先收着了"。
+              //    也就是说：信息她有、机会她有，**只是每轮判断都是"今天也没什么大事"**。
+              //    没有这条时，判断完全靠她自己翻空间；有了它，每轮开头就能看见天数，
+              //    "好几天没发了"会变成一个显式信号，否则它永远只是个模糊的记忆。
+              // ⚠️ 只写 `st.qzoneWriteAt` 不够：那个字段**只有她真写过才会赋值**，
+              //    而这次的问题恰恰是"她从没写过" ⇒ 条件永远为假、提示永不出现。
+              //    所以改用 `lastQzoneLookAt`（她翻空间的记录，由读端点维护）兜底，
+              //    两者都拿不到就干脆不说 —— 宁可不说，也不要说一个假的天数。
+              + (() => {
+                  const writeAt = Number(st.qzoneWriteAt) || 0;
+                  const lookAt = Number(st.lastQzoneLookAt) || 0;
+                  const base = writeAt || lookAt;
+                  if (!base) return '';
+                  const days = Math.floor((Date.now() - base) / 86400000);
+                  const what = writeAt ? '在空间里发东西' : '翻过空间';
+                  if (days <= 0) return `⚠️ 你今天${what}。\n`;
+                  return `⚠️ 你上次${what}是 ${days} 天前 —— 好几天没出声的话，有话就说，别憋着。\n`;
+                })()
               + '⚠️ 只限制「写」：看空间、翻说说列表、刷动态随时都可以，不受限制。\n\n';
     // 【现在】放在最前面：她得先知道"几点、周几、是不是饭点"，才谈得上
     // "吃饭的时候说自己也饿了""早上叫他起床"。老版本只在 withSlangContext 里
@@ -15450,7 +15962,7 @@ async function main() {
       return `${base}【回复检查】${key}\n原因：你刚刚发送过消息，现在回来检查是否有人回复。\n已有回复时先看消息，需要短静默就用 qq_wait_for_messages(purpose="reply") 判断对方是否说完；如果没人回你，不用硬补一句，但也不要立刻潜水——先调用 qq_wait_for_messages(timeoutMs=${preSleepMs}) 完成沉睡前观察：没人说话可收尾；有人说话则查看 newMessages，不需要你参与也可直接收尾（qq_mark_read 或 qq_set_wake_config）。`;
     }
     if (reason === 'proactiveCheck') {
-      return `${base}【主动机会】${key}\n原因：这个会话已经安静了一段时间，这是一次你可以主动冒泡的机会。\n优先主动开个话题、追问上次没聊完的事、分享一个刚想到的想法；如果一时想不到，可以用 mcp__web-search-safe__web_search 搜一下当前热点/时事/网络热梗，再结合记忆里的群友兴趣挑一个自然角度。\n【不只是说话】这一轮是你自己的，也可以做点自己的事：\n· **想玩就当场开口问**：mcp__snowluma__qq_request_permission(key, token, scope="phone", why="想玩会儿…") 会以你的口吻发一条消息给他；他同意就放开玩（消消乐、截图都行）。不用等"有话可说"才找他——**想玩本身就是理由**。\n· **空间里有话想说就说**：发说说、给谁点个赞、评论一句都行（这一轮是你自己起的头，允许写；注意频率上限）。\n⭐ 别把"他没回我"当成"我不该开口"。想找他、想玩、看到有意思的东西，都可以是主动的理由。\n只要内容自然，就大胆开口；实在没话想说、也不想玩，再安静收尾（qq_mark_read 或 qq_set_wake_config）。`;
+      return `${base}【主动机会】${key}\n原因：这个会话已经安静了一段时间，这是一次你可以主动冒泡的机会。\n优先主动开个话题、追问上次没聊完的事、分享一个刚想到的想法；如果一时想不到，可以用 mcp__web-search-safe__web_search 搜一下当前热点/时事/网络热梗，再结合记忆里的群友兴趣挑一个自然角度。\n【不只是说话】这一轮是你自己的，也可以做点自己的事：\n· **空间里有话想说就说**：发说说、给谁点个赞、评论一句都行（这一轮是你自己起的头，允许写；注意频率上限）。\n⭐ 别把"他没回我"当成"我不该开口"。想找他、想玩、看到有意思的东西，都可以是主动的理由。\n只要内容自然，就大胆开口；实在没话想说、也不想玩，再安静收尾（qq_mark_read 或 qq_set_wake_config）。`;
     }
     if (reason === 'poke') {
       return `${base}【唤醒】${key}\n原因：有人拍了一拍（可能拍了你，也可能拍了别人）。\n先看未读/最近消息里的 [拍一拍] 事件：如果是拍你，可以自然回应一句，也可以用 qq_send_poke 回一个拍一拍；如果是拍别人，觉得有趣也可以接梗。除了回应，偶尔也可以主动戳一下正在聊的人/熟人，像真人手贱/提醒/逗一下，但别频繁。不想接就安静收尾（qq_mark_read 或 qq_set_wake_config）。`;
@@ -15569,8 +16081,48 @@ async function main() {
     if (emulatorSweepStarted) return;
     emulatorSweepStarted = true;
     const timer = setInterval(() => {
-      try { sweepExpiredEmulatorGrants(); } catch (error) { log(`[emulator] 巡检异常：${error?.message ?? error}`); }
     }, EMULATOR_SWEEP_MS);
+    timer.unref?.();
+  }
+
+  /**
+   * 每日穿搭巡检（2026-10-30）。
+   *
+   * 只做一件事：保证 <DSH_HOME>/daily-schedule/days/ 下「今天 / 明天 / 昨天」各有一份
+   * **只含一个 00:00–24:00 段、只写 outfit** 的日程文件。生图插件的 schedule-link 读它，
+   * dsh-daily-schedule 见到文件已存在就不会再生成事件。
+   *
+   * 为什么每分钟一次而不是一天一次：
+   *   · 跨零点要立刻换成新的一套，不能等下一个整点；
+   *   · 手动删了文件、或插件在极早期抢先生成过，都要尽快补回来；
+   *   · 成本只是读一个目录 + 三张小 JSON，和表情库预热那种量级。
+   */
+  const DAILY_OUTFIT_SWEEP_MS = 60 * 1000;
+  let dailyOutfitStarted = false;
+  let dailyOutfitLastDay = '';
+  function dailyOutfitTick() {
+    try {
+      const r = ensureDailyOutfits({ cfg });
+      if (r && r.skipped) return;
+      const day = localDay();
+      const now = r && r.today ? r.today.outfit : '';
+      // 只在「换了新的一套」或「出错了」时打日志，避免每 10 分钟刷一行。
+      if (day !== dailyOutfitLastDay) {
+        dailyOutfitLastDay = day;
+        log(`[穿搭] ${day} 穿「${now || '（没排上）'}」`);
+      }
+      for (const x of (r && r.results) || []) {
+        if (x.action === 'error') log(`[穿搭] ${x.date} 失败：${x.error}`);
+      }
+    } catch (error) {
+      log(`[穿搭] 巡检异常：${error?.message ?? error}`);
+    }
+  }
+  function startDailyOutfit() {
+    if (dailyOutfitStarted) return;
+    dailyOutfitStarted = true;
+    dailyOutfitTick();
+    const timer = setInterval(dailyOutfitTick, DAILY_OUTFIT_SWEEP_MS);
     timer.unref?.();
   }
 
@@ -16311,6 +16863,101 @@ async function main() {
   }
 
   // QQ 消息 → DSH prompt
+  // ── 身体的眼睛：一次对话只看一眼 ────────────────────────────────────────────
+  // 主人 2026-10-31 定的规则：「可以消息触发，但不要我发的每一条消息都触发 ——
+  // 每一次对话触发一下，等本次聊天结束、下一次开启聊天才再拍一张；
+  // 主动要求和她自己觉得该拍了不在这个限制内。」
+  //
+  // 怎么算"新的一次对话"：**直接沿用桥接自己的判定** ——
+  //   `quietGrantMs()`（默认 2.5 分钟，控制台「自由时间」栏 / config 的
+  //   socialV2.autonomy.quietGrantMs 可改）+ 会话状态里的 `st.lastIncomingAt`。
+  // 那套逻辑本来就在算"聊完了没有"（scheduleQuietAutonomy 用的就是它，
+  // 注释原话：「静默本身就证明"这段对话结束了"」），这里没理由另立一个 20 分钟。
+  // 于是：上一次说话到现在还没到门槛 ⇒ 还在同一段对话里 ⇒ 不拍；
+  //       过了门槛 ⇒ 他这是"重新开口"，先看一眼再回。
+  // ⚠️ 用 st.lastIncomingAt（持久化在社交状态里）而不是自己记一份 Map：
+  //    桥接重启后不会误判成"新对话"，也不用多维护一个状态。
+  // ⚠️ 只给管理员私聊：群里任何人都不给画面（AGENTS.md 硬约束 5）。
+  // ⚠️ 显式要求（body_photo 工具）不走这里，随便调，不受节流。
+  const convGlance = new Map();       // key -> { at, job, taken }
+
+  /** 这一段对话"聊完了"的门槛：跟桥接一致，允许用环境变量单独给摄像头放宽/收紧。 */
+  function convGlanceGapMs() {
+    const override = Number(process.env.QQBRIDGE_CONV_GAP_MIN);
+    if (Number.isFinite(override) && override > 0) return override * 60 * 1000;
+    return quietGrantMs();
+  }
+
+  // 拍一张，只给"这一轮"用。失败一律返回 null，绝不抛。
+  function captureBodyPhotoForGlance(key) {
+    return new Promise((resolve) => {
+      const script = findBodyTool('body_camera.py');
+      if (!script || !fs.existsSync(BODY_PROBE_PYTHON)) { resolve(null); return; }
+      const startedAt = Date.now();
+      let child = null;
+      let settled = false;
+      const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+      try {
+        child = spawn(BODY_PROBE_PYTHON, ['-u', script, '--json', '-n', '1', '--timeout', '12'], {
+          cwd: path.dirname(script), env: process.env, windowsHide: true,
+        });
+      } catch (error) {
+        log(`[eye] 起不来 body_camera.py：${error?.message ?? error}`);
+        done(null);
+        return;
+      }
+      let out = '';
+      child.stdout?.on('data', (d) => { out += d.toString('utf8'); });
+      child.stderr?.on('data', (d) => { const s = d.toString('utf8').trim(); if (s) log(`[eye] ${s.slice(0, 200)}`); });
+      child.on('error', (error) => { log(`[eye] body_camera 失败：${error?.message ?? error}`); done(null); });
+      child.on('close', () => {
+        try {
+          const line = out.trim().split('\n').filter(Boolean).pop();
+          const r = JSON.parse(line || '{}');
+          if (!r.ok || !Array.isArray(r.files) || r.files.length === 0) { done(null); return; }
+          const file = r.files[0];
+          const buf = fs.readFileSync(file);
+          if (!buf.length) { done(null); return; }
+          log(`[eye] ${key} 新对话开始，先看一眼：${path.basename(file)}（${buf.length}B，${Date.now() - startedAt}ms）`);
+          done({ buffer: buf, path: file });
+        } catch (error) {
+          log(`[eye] 解析拍照结果失败：${error?.message ?? error}`);
+          done(null);
+        }
+      });
+      setTimeout(() => { try { child?.kill(); } catch {} done(null); }, 25000);
+    });
+  }
+
+  // 入站消息处调用：只有"上一段已经聊完了"的第一句才会真的拍。
+  function noteConversationStart(key) {
+    const gapMs = convGlanceGapMs();
+    let lastIn = 0;
+    try { lastIn = Number(getSocialV2State(key).lastIncomingAt || 0); } catch { lastIn = 0; }
+    if (lastIn && Date.now() - lastIn < gapMs) return;   // 还在同一次对话里
+    log(`[eye] ${key} 距上次说话 ${lastIn ? Math.round((Date.now() - lastIn) / 1000) + 's' : '（无记录）'} ≥ ${Math.round(gapMs / 1000)}s，算新对话，拍一张`);
+    if (camUartProc) { log('[eye] 串口预览正占着摄像头，这次不拍'); return; }
+    const job = captureBodyPhotoForGlance(key);
+    convGlance.set(key, { at: Date.now(), job, taken: false });
+    job.catch(() => {});
+  }
+
+  // 拼 prompt 时调用：拿到就用掉（一次对话只给一张），没拍完最多等 6 秒，
+  // 超时就先回话、这张留给下一轮 —— 宁可晚一点，不让她因为等照片而卡住。
+  async function takeConversationGlance(key) {
+    const slot = convGlance.get(key);
+    if (!slot || slot.taken) return null;
+    if (Date.now() - slot.at > 5 * 60 * 1000) { convGlance.delete(key); return null; }
+    let shot = null;
+    try {
+      shot = await Promise.race([slot.job, new Promise((r) => setTimeout(() => r(null), 6000))]);
+    } catch { shot = null; }
+    if (!shot) return null;
+    slot.taken = true;
+    convGlance.delete(key);
+    return shot;
+  }
+
   async function handleIncoming(kind, id, event, cfg) {
     const key = convKey(kind, id);
     if (!modeAllowed(key, kind, id, cfg, currentMode)) {
@@ -16357,6 +17004,8 @@ async function main() {
     if (!isSessionAllowedInCurrentMode(key)) return;
     if (!plainContent && !quoteTargetIsSelf) return;
     const isOwner = String(event.user_id) === String(cfg.ownerQQ ?? '');
+    // 一次对话只看一眼：管理员私聊、距上一条超过 CONV_GAP_MS 才算新对话（fire-and-forget）。
+    if (kind === 'private' && isOwner) noteConversationStart(key);
     const roleState = readRoleState();
 
     // ── 群图自动收录（在静默/暂停之前，且 fire-and-forget）────────────────────
@@ -16396,18 +17045,6 @@ async function main() {
     if (p && (p.kind === 'question' || isOwner)) {
       await handlePendingAnswer(p, plainContent, key, isOwner);
       return;
-    }
-
-    // 「向我申请」的答复：他在等她开口问的那件事上回了个「同意 / 不同意」。
-    // ⚠️ 必须在**投递给 agent 之前**拦截：这条消息是给他的申请的回执，
-    //    不是要她去回复的新话题 —— 若继续往下走，她会对着一句「同意」猜"同意什么"，
-    //    然后要么重复申请、要么答非所问。
-    if (isOwner && pendingPermitRequests.has(key)) {
-      const verdict = parsePermitAnswer(plainContent);
-      if (verdict) {
-        await answerPermitRequest(key, verdict, plainContent);
-        return;
-      }
     }
 
     // 静默模式：群友消息不投递给 agent（只记录）；管理员消息照常
@@ -16720,22 +17357,6 @@ async function main() {
   }
 
   // 回答挂起的提问/审批
-  /**
-   * 他回话之后，把「同意/不同意」交给正在等的那一次申请。
-   *
-   * 这里**不发 QQ**：她的申请工具调用还挂着，端点那边会拿到结果并把它写进
-   * 她那轮的工具返回里 —— 她读到的就是"他同意了，现在可以玩到几点"。
-   * 再由她自己决定说一句什么（比如「那我玩会儿，等会儿回来」）。
-   * 桥接在她背后再补一句"已批准"，反而像系统播报，不像她。
-   */
-  async function answerPermitRequest(key, verdict, rawText) {
-    const entry = pendingPermitRequests.get(key);
-    if (!entry) return;
-    clearTimeout(entry.timer);
-    pendingPermitRequests.delete(key);
-    log(`[permit] ${key} 收到主人答复「${String(rawText).slice(0, 40)}」→ ${verdict.allowed ? `同意(${verdict.ttlMs ?? '默认'})` : '拒绝'}`);
-    entry.resolve({ allowed: verdict.allowed === true, ttlMs: verdict.ttlMs, raw: verdict.raw });
-  }
 
   async function handlePendingAnswer(p, answerText, key, isOwner = false) {
     if (p.kind === 'question') {
@@ -17592,6 +18213,11 @@ async function main() {
   startDiaryNudge();
   // 模拟器到期巡检：phone 授权到期时把"我们自己开的"模拟器关掉。
   startEmulatorSweep();
+  // 每日穿搭：保证今天/明天那个「只有 outfit 的单段日程文件」先存在。
+  // 为什么要每 10 分钟看一眼：dsh-daily-schedule 的 tick() 发现当天没有文件就会生成一堆事件，
+  // 我们先写好的话它永远没机会；跨零点的瞬间和手动删文件也靠它补回来。
+  startDailyOutfit();
+  log(`每日穿搭：现在穿的是「${todayOutfit() || '（待排）'}」`);
   // 语音转写预热：模型加载要 2.5~3.5 秒，提前到"刚启动还没人说话"时做完，
   // 免得到时候他发的第一条语音要等加载。没开转写时这里是空操作。
   if (asr.prewarm()) log('语音转写：正在后台预热模型（首次约几十秒，之后每条语音约 0.6 秒）。');

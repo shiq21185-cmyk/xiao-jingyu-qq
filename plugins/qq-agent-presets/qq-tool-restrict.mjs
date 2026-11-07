@@ -327,7 +327,7 @@ const SAFE_PREFIXES = [
   'mcp__snowluma-host__',
   'mcp__web-search-safe__',
   // ⚠️ 手机控制（adb）**不在**前缀白名单里了：它改成「要授权才放行」，
-  //    见下面的 PERMIT_TOOL_SCOPES。只读的 mcp__phone__phone_status 单独放行
+  //    （2026-11-06：手机工具整套下线，那段申请闸门已删除；phone_status 仍是只读放行）
   //    （她得先能看一眼设备在不在线，否则连"能不能玩"都判断不了）。
 ]
 
@@ -352,19 +352,18 @@ export const OPEN_TO_ALL_SESSIONS = new Set([
   // —— 聊天必需（mcp__snowluma__）——
   'mcp__snowluma__qq_send_message', 'mcp__snowluma__qq_send_group_message',
   'mcp__snowluma__qq_send_private_message', 'mcp__snowluma__qq_reply',
-  'mcp__snowluma__qq_send_burst', 'mcp__snowluma__qq_send_poke',
+  'mcp__snowluma__qq_send_poke',
   'mcp__snowluma__qq_get_recent_messages', 'mcp__snowluma__qq_get_unread_messages',
   'mcp__snowluma__qq_get_my_recent_messages', 'mcp__snowluma__qq_get_message_detail',
   'mcp__snowluma__qq_get_message_images', 'mcp__snowluma__qq_get_forward_msg',
   'mcp__snowluma__qq_mark_read', 'mcp__snowluma__qq_wait_for_messages',
   'mcp__snowluma__qq_status', 'mcp__snowluma__qq_social_state',
   'mcp__snowluma__qq_get_prompt', 'mcp__snowluma__qq_get_active_members',
-  'mcp__snowluma__qq_set_wake_config', 'mcp__snowluma__qq_request_permission',
+  'mcp__snowluma__qq_set_wake_config',
   // —— 约定 / 轻量记忆 / 黑话 / 日记 ——
   'mcp__snowluma__qq_promise', 'mcp__snowluma__qq_promise_done',
   'mcp__snowluma__qq_memory_append', 'mcp__snowluma__qq_memory_query',
-  'mcp__snowluma__qq_memory_remove', 'mcp__snowluma__qq_memory_clear',
-  'mcp__snowluma__qq_slang_query', 'mcp__snowluma__qq_slang_submit',
+  'mcp__snowluma__qq_memory_remove',
   'mcp__snowluma__qq_write_diary', 'mcp__snowluma__qq_read_diary',
   // —— 图库 / 表情 ——
   'mcp__snowluma__qq_photo_list', 'mcp__snowluma__qq_get_photo_image',
@@ -394,7 +393,11 @@ export const OPEN_TO_ALL_SESSIONS = new Set([
   // —— 上报问题（工具消失会让她以为"连上报都坏了"，所以永远注册；见 mcp server）——
   'mcp__snowluma__qq_report_feedback',
   // —— 刷B站 · 只读 ——
-  'mcp__web-search-safe__bili_video',
+  //
+  // 2026-11-06 主人说「刷B站的都不要了」（m05483），`bili_video` 已从
+  // `src/mcp-web-search-safe.js` 下线。这里保留注释而不是留个空行：
+  // 下次有人问"B 站视频能不能读"，答案是"能，但要真看画面走 qq_watch_video"。
+  // 要恢复：把 mcp-web-search-safe.js 里那段注册块加回来，再把名字加回本集合。
   // —— 搜索 / 抓公开网页（MCP 版，不是 DSH 原生那两个）——
   //
   // ⚠️ 这两个是 2026-10-26 审计时**被迫表态**的一格，记在这里免得下次再有人问：
@@ -414,6 +417,7 @@ export const OPEN_TO_ALL_SESSIONS = new Set([
   'mcp__web-search-safe__web_see', 'mcp__web-search-safe__web_close',
   // —— 网关探活（只读）——
   'mcp__snowluma-host__snowluma_status',
+
 ])
 
 /**
@@ -493,6 +497,28 @@ export const GAME_TOOLS = new Set([
   'mcp__games__game_act',
 ])
 
+// ⭐ DSH 自带的 computer-use 全家桶（2026-11-02 补的回归网）——**只给管理员私聊**。
+//
+// 为什么不是一份固定名单：这套工具是 provider 在**运行时**从 SDK 问出来的
+// （`@trycua/cua-driver` 的 `listToolsJson()`），名字统一是
+// `cua_driver_native__<上游名>`，上游增减一个工具，名字就跟着变。写死七十个名字
+// 既会漂移、又会漏掉将来新增的（新增的等于默认没人挡）。
+//
+// 为什么必须显式挡、不能靠兜底：现在它**恰好**不在任何白名单里，所以会落到
+// fails-closed 的通用拒绝（「不在 QQ 桥接白名单内」）。那是"碰巧安全"——
+// 哪天有人给 `mcp__` 之外的命名空间加前缀、或者把 cua 塞进 SAFE_EXACT，
+// 它就会静默变成群聊可用。所以这里按前缀**先判一次**，理由说人话。
+//
+// 能力面（实测 70 个）：截屏、点鼠标、敲键盘、拖拽、启动/杀死 App、读写剪贴板、
+// 访问 accessibility tree、浏览器导航。等价于"主人的手坐在他电脑前"。
+// 这比本机执行（qq_run_command）更直接：命令还要写对，这个能直接点"确定"。
+export const CUA_TOOL_PREFIX = 'cua_driver_native__'
+
+/** 判断一个工具名是不是 DSH 的 computer-use 工具（含前缀族）。 */
+export function isCuaTool(name) {
+  return typeof name === 'string' && name.startsWith(CUA_TOOL_PREFIX)
+}
+
 const OWNER_PRIVATE_ONLY_DSH_TOOLS = new Set([
   'web_fetch',
   ...GAME_TOOLS,
@@ -509,7 +535,7 @@ const PHONE_READONLY = new Set([
  * ⭐ 手机只读两件 —— **只给管理员私聊**（2026-10-24 修 bug）。
  *
  * 为什么需要这一档：手机整包已经从 SAFE_PREFIXES 移出（改成"要授权才放行"），
- * 而上面这两个又被 PHONE_READONLY 判成"免授权"，于是 permitScopeOf 返回 null、
+ * （2026-11-06 注：permitScopeOf 已随申请闸门一起删除；这段只说明 phone_status 为何单独放行）、
  * **跳过授权闸门**；再往下既不在 SAFE_EXACT 也不在前缀白名单里 ⇒ 落到最后的兜底拒绝。
  * 两条路都不走 ⇒ 她**拿着有效授权也调不通**，连"模拟器在不在线"都判断不了
  * （实测 10-24 那次申请正是撞在这里：授权成功、一调 phone_status 就被拦）。
@@ -543,7 +569,8 @@ export const PHONE_READONLY_OWNER_TOOLS = new Set([
  *   2. 属于，但**不是管理员私聊** ⇒ 直接拒绝。群里任何人、任何普通成员的私聊，
  *      都不可能拿到手机或 B站 的动手权 —— 这一档不看授权文件，授权文件写了也没用。
  *   3. 属于，且是管理员私聊 ⇒ 读 state/permits.json，看此刻有没有**未过期**的授权。
- *      没有 ⇒ 拒绝，并把「去申请」的路子告诉它（qq_request_permission）。
+ *      没有 ⇒ 拒绝（2026-11-06：手机与 B站 都已下线，这条分支目前走不到；
+ *      保留是因为「申请闸门」这套机制还在，将来再加玩具可原样复用）。
  *
  * 🔴 fail-closed：读不到文件 / 找不到仓库根 / 解析失败 ⇒ 一律当**没有授权**。
  *    这与 ownerLookup 的口径一致：读不到只会让能力变少，绝不凭空变多。
@@ -553,74 +580,6 @@ export const PHONE_READONLY_OWNER_TOOLS = new Set([
  *   server。桥接只能在**发授权/收回授权**这一侧起作用，执行侧的唯一卡点就是这里。
  *   如果把判定写在桥接里，等于没有判定。
  */
-const PERMIT_TOOL_SCOPES = new Map([
-  // 手机：除了状态查询与连招列表，全部要授权（截图也算 —— 截图能看到主人屏幕上的东西）
-  ['mcp__phone__phone_screen', 'phone'],
-  ['mcp__phone__phone_dump', 'phone'],
-  ['mcp__phone__phone_tap', 'phone'],
-  ['mcp__phone__phone_tap_text', 'phone'],
-  ['mcp__phone__phone_swipe', 'phone'],
-  ['mcp__phone__phone_key', 'phone'],
-  ['mcp__phone__phone_text', 'phone'],
-  ['mcp__phone__phone_open', 'phone'],
-  ['mcp__phone__phone_scroll', 'phone'],
-  ['mcp__phone__phone_scroll_until', 'phone'],
-  ['mcp__phone__phone_run_flow', 'phone'],
-  ['mcp__phone__phone_game_look', 'phone'],
-  ['mcp__phone__phone_game_move', 'phone'],
-  // B站：只把"跑一轮"（起会话、花 token、会对外发言）纳入申请；
-  // 搜视频/读字幕/读评论是纯读，照旧放行（她查资料不该也要打报告）。
-  ['bili_run', 'bili'],
-])
-
-// 授权文件：与桥接 src/permit-lib.js 是同一份契约（version/grants/requests）。
-const PERMIT_FILE_REL = ['state', 'permits.json']
-const PERMIT_CACHE_MS = 2000
-let permitCache = { at: 0, grants: new Map() }
-
-function readPermitGrants() {
-  const now = Date.now()
-  if (now - permitCache.at < PERMIT_CACHE_MS) return permitCache.grants
-  const root = findRepoRoot()
-  const grants = new Map()
-  if (root !== null) {
-    const file = readJsonSafe(path.join(root, ...PERMIT_FILE_REL))
-    for (const [key, perScope] of Object.entries(file?.grants ?? {})) {
-      if (!perScope || typeof perScope !== 'object') continue
-      const live = new Map()
-      for (const [scope, g] of Object.entries(perScope)) {
-        const expiresAt = Number(g?.expiresAt)
-        if (Number.isFinite(expiresAt) && expiresAt > now) live.set(scope, expiresAt)
-      }
-      if (live.size) grants.set(key, live)
-    }
-  }
-  permitCache = { at: now, grants }
-  return grants
-}
-
-/** 该会话此刻对某 scope 的授权到期时间；0 = 没有。 */
-function permitExpiresAt(agent, scope) {
-  const sid = agent?.session?.id
-  if (typeof sid !== 'string' || sid === '') return 0
-  const { sessions } = ownerLookup()
-  const key = sessions.get(sid)
-  if (typeof key !== 'string') return 0
-  return readPermitGrants().get(key)?.get(scope) ?? 0
-}
-
-/** 工具是否需要授权；返回 scope 或 null。 */
-export function permitScopeOf(name) {
-  if (typeof name !== 'string') return null
-  if (PHONE_READONLY.has(name)) return null
-  return PERMIT_TOOL_SCOPES.get(name) ?? null
-}
-
-/** 需要授权的工具全集（供控制台与测试对账）。 */
-export function permitGatedTools() {
-  return [...PERMIT_TOOL_SCOPES.entries()].map(([tool, scope]) => ({ tool, scope }))
-}
-
 // 无害模型侧工具：ask_user_question 用于把问题转给管理员/用户，
 // todo_write 仅维护任务列表。若后续 preset 不再挂载这些工具，保留无害。
 const SAFE_EXACT = new Set([
@@ -640,73 +599,36 @@ const SAFE_EXACT = new Set([
 ])
 
 /**
- * ⭐ 刷B站 插件（`dsh-bili-scroll`）注册的工具 —— 逐个列名，**不用前缀**。
+ * ⭐ **billion-context 的上下文管理工具**（2026-11-03 补，主人贴的那张
+ * `工具 "compress" 不在 QQ 桥接白名单内，已拒绝` 就是它）。
  *
- * 为什么逐个列而不是放行 `bili_` 前缀：放行前缀等于"以后插件新增什么工具都自动放行"，
- * 而这个插件已经有过一次"整台工具都给了那一轮"的事故（见其 CHANGELOG 0.1.6）。
- * 逐个列名让这份名单**看得懂、审得动**：列出来的才是允许的。
+ * 为什么必须放行：这些是**她自己管上下文**的工具 —— 长对话撑不住时，
+ * 她要把已经消化掉的段落压成摘要（`compress`），之后按关键词翻回来
+ * （`search_context` / `decompress`）。全被拒的后果不是"少个功能"，
+ * 而是**会话一路涨到爆**，然后她只能要么忘掉前面聊过什么、要么整段丢。
+ * 她当时正在做的正是这件事（调 compress 写 19 条摘要），结果吃了个拒绝。
  *
- * 放行的是**只读的八个 + run**：
- *   bili_whoami / bili_search / bili_subtitle / bili_comments / bili_status —— 纯读，
- *     （搜视频 / 读字幕 / 读评论 / 看登录与额度状态）不产生任何对外动作；
- *   bili_unread_messages / bili_received_replies / bili_received_at_and_likes —— 纯读，
- *     读**她自己账号收到**的通知（未读数量 / 评论回复 / @ 与点赞）。
- *     ⭐ 2026-10-18 主人要的：「看看有谁回了我、@ 了我」—— 不用私信、不用新增工具，
- *        这三个本来就在插件里（mcp_server.py 的 Tool 22/23/24），只是没被放行。
- *     ⚠️ 它们读的是**本账号**的通知，不是别人的；也不产生任何对外动作 ⇒ 群聊同样放行无害。
- *   bili_run —— "立刻跑一轮"：真正让 QQ 这边能触发刷B站的入口。
- *     ⚠️ 它会起一个 headless 会话、**花 token**；群聊里任何人也能触发（见下方说明）。
+ * 为什么可以放给**三类会话**（不只是管理员私聊）：
+ *   能力面 = 读/写**她自己这一轮的对话摘要**。参数只有 ref（`m00150` 这种
+ *   会话内标记）和自己写的摘要正文；不碰文件系统、不起子进程、不联网、
+ *   也不产生任何对外动作。和 `todo_write`（待办列表）同一档：
+ *   是"她自己的记录"，不是"这台电脑的手"。
+ *
+ * ⚠️ 逐个列名、不放 `acp_` 或 billion-context 前缀：
+ *   这个插件还会注册 `absorb` / `acp_retrieve` 之类（有的会改压缩策略甚至
+ *   走写文件），前缀放行等于"以后它新增什么都自动开"。列出来的才是允许的。
+ *
+ * ⚠️ 反面提醒：这六个**绝不能**顺手扩成"整个 billion-context 包全放"。
  */
-const BILI_ALLOWED = new Set([
-  'bili_whoami',
-  'bili_search',
-  'bili_subtitle',
-  'bili_comments',
-  'bili_status',
-  // 读「自己账号收到的」通知：未读数量 / 评论回复 / @ 与点赞（纯只读）
-  'bili_unread_messages',
-  'bili_received_replies',
-  'bili_received_at_and_likes',
+export const CONTEXT_TOOLS = new Set([
+  'compress',        // 把已消化的对话段写成摘要
+  'decompress',      // 恢复压缩过的内容（要精确细节时）
+  'search_context',  // 在摘要里按关键词检索
+  'acp_status',      // 看上下文用量 / 可压缩范围（只读）
+  'acp_cache',       // 看压缩缓存的统计（只读）
+  'acp_read_original_image', // 读**本会话**某张图的原始分辨率（只读）
 ])
 
-/**
- * 🔒 只允许**主人私聊**的刷B站 工具（按 QQ 号判定，见 isOwnerPrivate）。
- *
- * 为什么单独拎出来：`bili_run` 是"立刻跑一轮" —— 它会起一个 headless 会话、**真花钱**
- * （读字幕、调模型、写报告）。只读的那几个放给群聊无所谓，但这个不行：
- * 群里**任何人**都能反复触发它，把主人的 token 烧掉，而且看起来像是小鲸鱼自己在刷。
- *
- * ⇒ 判据用**会话 id 反查 QQ 号**（守卫拿不到 QQ 会话 key，只有 exec.agent.session.id），
- *   拿不准就拒绝。这样"私聊全权、群聊受限"这一点就落到了实处。
- */
-const BILI_OWNER_ONLY = new Set([
-  'bili_run',
-  // ⭐ 2026-10-18 主人明确要「私信为主 + 允许小鲸鱼在对话里临时发评论」，
-  //    且这个 B站 账号是**他的小号**（不是实名大号）⇒ 放行，但仍然**只给主人私聊**：
-  //    群里任何人都不该能拿这个号公开发言（那看起来就是"小鲸鱼自己在乱说话"）。
-  //    ⚠️ 插件自己还有一道闸（`autoComment` + `mentionName`），这里放行不等于绕过它。
-  'bili_reply',
-])
-
-/**
- * 🔴 刷B站 插件里**必须拒绝**的工具（即使它们在同一个插件里）。
- *
- * 都是**会改动本机状态 / 碰账号凭证**的，一律不放行（群里、私聊都不放）：
- *   bili_config       —— 改插件设置（能把自己设置成"自动评论"，等于自我提权绕过评论闸）
- *   bili_setup        —— 建 venv 装依赖（等于递执行能力）
- *   bili_login_start  —— 出登录二维码（发起账号登录流程）
- *   bili_login_poll   —— 落凭证到本机（把你的登录态写到 bili_credential.json）
- * 这些由管理员在 DSH 管理端的设置页操作即可，不需要 QQ 会话具备。
- *
- * ⚠️ `bili_reply` **不在**这个名单里 —— 主人 2026-10-18 明确要求保留它
- *    （见 BILI_OWNER_ONLY 的说明），但它仍然只对主人私聊开放。
- */
-const BILI_DENIED = new Set([
-  'bili_config',
-  'bili_setup',
-  'bili_login_start',
-  'bili_login_poll',
-])
 
 /**
  * 🔒 **跨会话信息面** 工具：只给**管理员私聊**。
@@ -723,13 +645,13 @@ const BILI_DENIED = new Set([
  * **不用前缀匹配**：那会把以后新增的工具也一起放进来，而这份名单的意义就是"列出的才允许"。
  *
  * 留下的与理由：
- *   qq_get_account_info      —— 读**她自己**的账号信息 + **好友列表**（含主人是谁）。
+ *   （已下线 2026-11-06）qq_get_account_info —— 读账号信息 + 好友列表。
  *                               这是跨会话的账号面信息：私聊对象能借此看到她还加了谁。
  *   qq_get_qzone_list        —— 读她的空间说说列表（账号面，同上）。
  *   qq_list_groups           —— 列出机器人所在的**全部群**：跨会话信息，
  *                               会让普通成员知道机器人在哪些群。
- *   qq_get_group_history     —— 旧只读工具，设计上就标明"只能在封闭 agent 里用"。
- *   qq_get_group_members     —— 同上（群成员名单）。
+ *   （已下线 2026-11-06）qq_get_group_history —— 旧只读工具。
+ *   （已下线 2026-11-06）qq_get_group_members —— 群成员名单。
  *
  * ⭐ 已放开的（2026-10-19 主人明确指示，**不再**属于本名单）：
  *   qq_send_voice / qq_speak / qq_send_qzone_msg —— 发声类。语音与说说的内容由她自己
@@ -756,7 +678,6 @@ const BILI_DENIED = new Set([
  *      （对比：KNOWN_DANGEROUS_GLOBAL_TOOLS 也用同样的 restrict + guard 双保险。）
  */
 const OWNER_PRIVATE_ONLY = new Set([
-  'mcp__snowluma__qq_get_account_info',
   'mcp__snowluma__qq_get_qzone_list',
   // ⭐ 2026-10-19 新增：空间好友动态流（读别人发了什么）。
   //    归到本名单而不是"发声类"，因为它读的是**好友的社交圈**——和 qq_get_qzone_list
@@ -764,8 +685,11 @@ const OWNER_PRIVATE_ONLY = new Set([
   //    她还跟谁有来往。**读**可以被人叫去看（「你去看看说说」），但只对管理员私聊开放。
   'mcp__snowluma__qq_get_qzone_feeds',
   'mcp__snowluma__qq_list_groups',
-  'mcp__snowluma__qq_get_group_history',
-  'mcp__snowluma__qq_get_group_members',
+  // ⭐ 2026-11-03：看屏幕（see-now）。屏幕上有密码、别人的私信、没发出去的草稿 ——
+  //    群聊或普通成员私聊里让她"看一眼主人屏幕"，等于把这些播给群里。
+  //    所以和"账号面/跨会话信息"同档：只放管理员私聊。
+  'mcp__snowluma__qq_watch_screen',
+
 ])
 
 /**
@@ -792,6 +716,15 @@ export const OWNER_AND_GROUP_TOOLS = new Set([
   // 而桥接对群聊强制「只认下载目录」——读不到主人电脑上的别的文件，
   // 所以它不再是"这台电脑的手"，只剩"把手里的东西递出去"。
   'mcp__snowluma__qq_send_file',
+  // 看视频（2026-10-31 加入）：把链接变成一张带时码的宫格图，让她真的"看到"画
+  // 面而不只是标题和弹幕。和生图同一档——群里用得着（有人甩链接时她能接得住），
+  // 但普通成员私聊不开：那是 1 对 1，没有"一起看"的场合，只会变成点播台。
+  //
+  // 另有几道独立闸，不在这张表里：桥接侧 `socialV2.tools.watchVideo` 总开关、
+  // 每人每天的次数上限（`socialV2.video.dailyPerSession`，默认 5）、以及"本地文件
+  // 路径只认主人"——外面的人只能给她链接，不能让她读这台机器上的文件。
+  // 额度那道是必要的：它要真下载、真转码，不像读一条消息那样便宜。
+  'mcp__snowluma__qq_watch_video',
 ])
 
 /**
@@ -839,6 +772,14 @@ const HOST_EXEC_TOOLS = new Set([
   'mcp__snowluma__qq_run_command',
   'mcp__snowluma__qq_read_file',
   'mcp__snowluma__qq_write_file',
+  // ⭐ 桌面 GUI 面（2026-11-02，主人 m00593「看看 dsh 里有没有合理的工具给小鲸鱼用」）。
+  //    截屏 / 鼠标 / 键盘 / 列窗口 —— 这四个让她真的能"看见屏幕、点得到东西"，
+  //    补的就是「exe 游戏接不上」那个坑（她原话：「这种 exe 我根本接不上」）。
+  //    和上面三个同档：**只给管理员私聊**，桥接侧 host-* 的四道闸照样生效。
+  'mcp__snowluma__qq_screenshot',
+  'mcp__snowluma__qq_mouse',
+  'mcp__snowluma__qq_keyboard',
+  'mcp__snowluma__qq_windows',
   // ⚠️ 发文件（qq_send_file）曾经在这里，2026-10-30 移到了 OWNER_AND_GROUP_TOOLS
   //    （主人 m02763：「可以开放在群里面，但是不能开放给普通私聊」）。
   //    群里放开的风险由桥接侧兜住：群聊只认下载目录里的文件（bridge.js sendFileV2
@@ -859,6 +800,25 @@ const HOST_EXEC_TOOLS = new Set([
  */
 const BODY_SAY_TOOLS = new Set([
   'mcp__snowluma__qq_body_say',
+])
+
+/**
+ * ⭐⭐ **身体的眼睛**（2026-10-31 新增，`src/mcp-body.js` 那一组，名字是 `mcp__body__*`）。
+ *
+ * 和上面那把嘴同一档、但理由更硬一点：`body_photo` 打开的是**装在他屋里的摄像头**，
+ * 拍到的可能是他本人、他的房间、他的屏幕。群里任何人拿到它，等于随时能往他屋里看一眼。
+ * `body_say` 是同一块板子上的喇叭，`body_status` 会泄露屋里设备的在线状态与网络位置
+ * （IP / 信号 / 开机多久）——这三件合在一起就是"屋里的那个东西"，只给他自己的私聊。
+ *
+ * ⚠️ 2026-10-31 的教训：MCP 工具挂上了、模型也看得见，但**只要没在这个文件里登记，
+ *    执行期一律落到兜底拒绝**（她原话是"工具没有加入桥接的白名单"）。
+ *    以后再加 body 类工具，记得同时改：本文件（判定 + 权能矩阵）与
+ *    `scripts/test-tool-classification.mjs` 对账。
+ */
+const BODY_EYE_TOOLS = new Set([
+  'mcp__body__body_photo',
+  'mcp__body__body_say',
+  'mcp__body__body_status',
 ])
 
 /**
@@ -895,21 +855,16 @@ const QZONE_WRITE_OPS = new Set([
  *
  * @param {unknown} name 工具名
  * @param {'owner-private'|'member-private'|'group'} kind 会话类别
- * @param {{agent?:unknown}} [opts] 只有需要读授权文件时才用到（见 PERMIT_TOOL_SCOPES）
+ * @param {{agent?:unknown}} [opts] 目前未使用（授权闸门已于 2026-11-06 下线，保留形参不破坏调用方）
  */
 export function verdictFor(name, kind, opts = {}) {
   if (typeof name !== 'string' || name.length === 0) return '工具名无效，已拒绝'
-  // 🔴 拒绝优先于放行：刷B站 的这几个（尤其 bili_reply 的 force 参数）必须挡住，
-  //    否则群友可借小鲸鱼的手用主人的 B站号公开发评论。放在最前面，先否后肯。
-  if (BILI_DENIED.has(name)) {
-    return `工具 "${name}" 被拒绝（刷B站 的发评论/改设置/登录类工具不对 QQ 会话开放）`
-  }
   // ⭐⭐ 「向我申请」闸门：手机 / 跑一轮 B站 要管理员当场同意过才放行。
   //    ⚠️ 必须排在 BILI_ALLOWED / SAFE_PREFIXES 之前 —— bili_run 同时也在
   //    BILI_OWNER_ONLY 里，而那个集合只判"是不是管理员私聊"、不判"有没有申请过"；
   //    手机工具则本来就走前缀白名单。两者都必须在**这里**先被拦一次。
   // ⭐ 手机只读两件：先于授权闸门判定（它们免授权，但要限定会话）。
-  //    放在 permitScopeOf 之前是**必须**的：permitScopeOf 对它们返回 null，
+  //    （2026-11-06：这段的历史原因已随授权闸门下线，保留只为说明为什么 phone_status 要单独放行），
   //    一旦走到下面就会跳过授权分支、最终撞兜底拒绝（2026-10-24 的 bug）。
   if (PHONE_READONLY_OWNER_TOOLS.has(name)) {
     if (kind === SESSION_KIND.OWNER_PRIVATE) return undefined
@@ -917,40 +872,17 @@ export function verdictFor(name, kind, opts = {}) {
       ? `工具 "${name}" 只允许管理员私聊使用（群里不能探主人的手机在不在线）`
       : `工具 "${name}" 只允许管理员私聊使用（普通成员的私聊不能探主人的手机）`
   }
-  const permitScope = permitScopeOf(name)
-  if (permitScope !== null) {
-    if (kind !== SESSION_KIND.OWNER_PRIVATE) {
-      return kind === SESSION_KIND.GROUP
-        ? `工具 "${name}" 只允许管理员私聊使用：群里任何人都不能借它动主人的手机/账号`
-        : `工具 "${name}" 只允许管理员私聊使用（普通成员的私聊不能动主人的手机或 B站账号）`
-    }
-    const expiresAt = permitExpiresAt(opts.agent, permitScope)
-    if (!expiresAt) {
-      const label = permitScope === 'phone' ? '玩手机' : '刷B站（跑一轮）'
-      return `工具 "${name}" 需要主人当场同意。先调用 mcp__snowluma__qq_request_permission`
-        + `(key, token, scope="${permitScope}", why="想干嘛") 向他申请「${label}」，`
-        + `等他回「同意」之后再调用本工具；不同意或超时就不能做。`
-        + `注意：申请只对主人私聊有效，群聊里永远申请不到。`
-    }
-    // ⭐ 是有授权的管理员私聊 ⇒ 直接放行，**不再往下走到通用白名单**。
-    //    必须在这里 return：手机工具已经从 SAFE_PREFIXES 里移出来了
-    //    （不移出来的话，"没有授权"那条永远走不到，闸门等于没装），
-    //    所以放行只能由这个分支显式给出。bili_run 同理。
-    return undefined
-  }
-  if (BILI_ALLOWED.has(name)) return undefined
-  // 🔒 主人专属（bili_run 这类会花钱/起会话的）：拿不准就拒绝。
-  if (BILI_OWNER_ONLY.has(name)) {
-    return kind === SESSION_KIND.OWNER_PRIVATE
-      ? undefined
-      : `工具 "${name}" 只允许主人在私聊里使用（它会让 B站 刷一轮、花 token；群聊不开放）`
-  }
   if (SAFE_EXACT.has(name)) return undefined
+  // ⭐ 上下文管理（compress / decompress / search_context / acp_*）—— 三类会话全开。
+  //    见 CONTEXT_TOOLS 的说明：它们只读写**她自己的对话摘要**，不碰本机、不联网。
+  //    ⚠️ 放在 SAFE_EXACT 之后、各 OWNER_* 之前也成立，但**必须**在 SAFE_PREFIXES
+  //    与兜底拒绝之前 —— 它们不带 `mcp__` 前缀，靠前缀永远走不到。
+  if (CONTEXT_TOOLS.has(name)) return undefined
   // 🔒🔒 三类权能矩阵（2026-10-19，口径见上面 OWNER_PRIVATE_ONLY 的说明）：
   //    只拦**跨会话信息面**（好友列表 / 机器人在哪些群 / 群成员 / 群历史 / 她的空间列表）。
   //    语音、说说已按主人指示放开给所有会话 —— 发声不是隐私面。
   //    ⚠️ 必须放在 SAFE_PREFIXES 判断**之前** —— 否则 `mcp__snowluma__` 前缀
-  //    会把 qq_get_account_info 这些一并放行（前缀白名单是"整包放行"，
+  //    会把账号面那批一并放行（前缀白名单是"整包放行"，
   //    而三类矩阵要做的恰恰是在这个包里再分档）。
   // 🔒 DSH 原生 `web_fetch`：**只给管理员私聊**（主人 2026-10-21 决定）。
   //    它接受任意 URL，所以群里/普通成员私聊能用它等于把人肉代理交出去
@@ -966,6 +898,17 @@ export function verdictFor(name, kind, opts = {}) {
     return kind === SESSION_KIND.GROUP
       ? `工具 "${name}" 只允许管理员私聊使用：它点的是主人登录着的浏览器，群里任何人都不能借它动手`
       : `工具 "${name}" 只允许管理员私聊使用（普通成员的私聊不能动主人浏览器里的页面）`
+  }
+  // ⭐ DSH 自带的 computer-use（2026-11-02 补的回归网）：只给管理员私聊。
+  //    这套（cua_driver_native__*）现在**恰好**落在兜底拒绝里，但那是碰巧安全 ——
+  //    把它显式判一次，理由说人话，她才不会以为"工具坏了"反复重试。
+  //    ⚠️ 必须按前缀判，不能列名单：工具是运行时从 SDK 问出来的，名字会增减。
+  if (isCuaTool(name)) {
+    if (kind === SESSION_KIND.OWNER_PRIVATE) return undefined
+    return kind === SESSION_KIND.GROUP
+      ? `工具 "${name}" 只允许管理员私聊使用：它能直接截屏、点鼠标、敲键盘、开关程序，`
+        + `群里任何人都不能借它动主人的电脑`
+      : `工具 "${name}" 只允许管理员私聊使用（普通成员的私聊不能借它动主人的电脑）`
   }
   // ⭐ 读主人自己那块屏幕的（2026-10-26 审计补上）：只给管理员私聊。
   //    理由必须说"那是主人的屏幕"，别说成"抓任意网页" —— 说错了她会以为用错工具、反复重试。
@@ -995,6 +938,17 @@ export function verdictFor(name, kind, opts = {}) {
     return kind === SESSION_KIND.GROUP
       ? `工具 "${name}" 只允许管理员私聊使用：它接的是主人电脑上那台 QQ 的电话，群里任何人都不能替主人接/挂/说话`
       : `工具 "${name}" 只允许管理员私聊使用（普通成员的私聊不能接主人的电话：那会用主人的麦克风和声音说话）`
+  }
+  // ⭐ 身体的眼睛（2026-10-31）：摄像头看的是他屋里，喇叭在他屋里，状态里有他家 IP。
+  //    排在 SAFE_PREFIXES 之前没意义（mcp__body__ 本来就不在 prefixes 里），
+  //    但**必须**排在最后的兜底拒绝之前，否则她会拿到"不认识这个工具"这种抽象理由。
+  if (BODY_EYE_TOOLS.has(name)) {
+    if (kind === SESSION_KIND.OWNER_PRIVATE) return undefined
+    return kind === SESSION_KIND.GROUP
+      ? `工具 "${name}" 只允许管理员私聊使用：它对着的是主人屋里的摄像头和音箱，`
+        + `群里任何人都不能借它看他的房间、或者对着房间说话`
+      : `工具 "${name}" 只允许管理员私聊使用（普通成员的私聊不能用它看主人屋里的画面，`
+        + `也不能让屋里的音箱出声）`
   }
   // ⭐ 身体那张嘴（2026-10-28）：喇叭是物理装在主人屋里的，只给他的私聊。
   //    必须排在 SAFE_PREFIXES 之前 —— 前缀是整包放行，放在后面这条永远走不到。
@@ -1030,6 +984,11 @@ export function verdictFor(name, kind, opts = {}) {
       if (name === 'mcp__snowluma__qq_send_file') {
         return `工具 "${name}" 只在管理员私聊和群聊里能用（普通成员的私聊不开放发文件：`
           + `它会真的在主人这台电脑上下载东西再发出去）。要文件请在群里跟主人说。`
+      }
+      if (name === 'mcp__snowluma__qq_watch_video') {
+        return `工具 "${name}" 只在管理员私聊和群聊里能用（普通成员的私聊不开放看视频：`
+          + `它要在主人这台电脑上下载、转码、跑语音识别，很吃资源，这个额度只留给主人和群里）。`
+          + `想看请在群里说一声。`
       }
       return `工具 "${name}" 只在管理员私聊和群聊里能用（普通成员的私聊不开放生图：`
         + `一张图要花钱，这个额度只留给主人和群里）。要图请在群里说。`
@@ -1091,11 +1050,11 @@ export function privilegeMatrix() {
         tools: [
           'mcp__snowluma__qq_status', 'mcp__snowluma__qq_get_prompt',
           'mcp__snowluma__qq_social_state', 'mcp__snowluma__qq_mark_read',
-          'mcp__snowluma__qq_set_wake_config', 'mcp__snowluma__qq_request_permission',
+          'mcp__snowluma__qq_set_wake_config',
           'mcp__snowluma__qq_promise', 'mcp__snowluma__qq_promise_done',
           'mcp__snowluma__qq_wait_for_messages', 'mcp__snowluma__qq_report_feedback',
           'mcp__snowluma__qq_send_message', 'mcp__snowluma__qq_send_group_message',
-          'mcp__snowluma__qq_send_private_message', 'mcp__snowluma__qq_send_burst',
+          'mcp__snowluma__qq_send_private_message',
           'mcp__snowluma__qq_reply', 'mcp__snowluma__qq_send_poke',
           'mcp__snowluma__qq_get_recent_messages', 'mcp__snowluma__qq_get_unread_messages',
           'mcp__snowluma__qq_get_my_recent_messages', 'mcp__snowluma__qq_get_message_detail',
@@ -1123,10 +1082,19 @@ export function privilegeMatrix() {
           + '主人 2026-10-19 定的口径：「日记是她自己的，任何人都不能去改」。',
         tools: [
           'mcp__snowluma__qq_memory_append', 'mcp__snowluma__qq_memory_query',
-          'mcp__snowluma__qq_memory_remove', 'mcp__snowluma__qq_memory_clear',
-          'mcp__snowluma__qq_slang_query', 'mcp__snowluma__qq_slang_submit',
+          'mcp__snowluma__qq_memory_remove',
           'mcp__snowluma__qq_write_diary', 'mcp__snowluma__qq_read_diary',
         ],
+      },
+      {
+        id: 'context-self',
+        label: '上下文管理（她自己这一轮的对话）',
+        note: 'billion-context 注册的 `compress` / `decompress` / `search_context` / `acp_*`：'
+          + '把已经消化掉的对话段压成摘要、之后再翻回来。'
+          + '⚠️ 和上面「记忆 / 日记」同一档 —— 读写的是**她自己的对话**，不碰本机、不联网、不对外发声。'
+          + '（2026-11-03 补：此前它落在兜底拒绝里，她长对话想压缩时直接被拒，会话只能一路涨。）'
+          + '⚠️ 逐个列名、不放前缀：billion-context 还会注册别的（absorb / acp_retrieve），前缀放行等于全开。',
+        tools: [...CONTEXT_TOOLS].sort(),
       },
       {
         id: 'voice-self',
@@ -1165,7 +1133,10 @@ export function privilegeMatrix() {
         label: '跨会话信息面',
         note: '好友列表 / 机器人在哪些群 / 群成员 / 群历史 / 她的空间列表与好友动态 —— '
           + '一个会话里的成员不该能看见她还跟谁来往、在哪些群。挡的是"打探别的聊天"。',
-        tools: [...OWNER_PRIVATE_ONLY].sort(),
+        // 看屏幕也在这份名单里（同样是"只放管理员私聊"），但它不是"跨会话信息面"，
+        // 语义上是"看主人的机器"，所以下面单独成组显示。这里排掉，免得一张表里
+        // 同一个工具出现两行（test-tool-classification 会红）。
+        tools: [...OWNER_PRIVATE_ONLY].filter((t) => t !== 'mcp__snowluma__qq_watch_screen').sort(),
       },
       {
         id: 'call',
@@ -1184,13 +1155,30 @@ export function privilegeMatrix() {
         tools: [...BODY_SAY_TOOLS].sort(),
       },
       {
+        id: 'body-eye',
+        label: '身体的眼睛 · 屋里的摄像头',
+        note: '拍照 / 用屋里喇叭说话 / 看板子在线状态（`mcp__body__*`，2026-10-31 接的）。'
+          + '摄像头对着的是他屋里，拍到的可能是他本人和房间；状态里还有他家内网 IP。'
+          + '和「身体那张嘴」同一档：只给管理员私聊。',
+        tools: [...BODY_EYE_TOOLS].sort(),
+      },
+      {
         id: 'host-exec',
         label: '本机执行',
-        note: '跑命令 / 读文件 / 写文件 —— 在主人这台电脑上真动手，是目前最重的一组。'
+        note: '跑命令 / 读文件 / 写文件 / 截屏 / 鼠标 / 键盘 / 列窗口 —— 在主人这台电脑上真动手，是目前最重的一组。'
           + '桥接侧还会再查一次「这个会话就是管理员私聊」+ socialV2.tools.localExec 开关。'
-          + '（主人 2026-10-25 定的口径：只在他的私聊里开放。）'
+          + '（主人 2026-10-25 定的口径：只在他的私聊里开放；桌面 GUI 面 2026-11-02 并入同一档。）'
           + '发文件已不在这组（2026-10-30 挪到下面「发文件」那一档）。',
         tools: [...HOST_EXEC_TOOLS].sort(),
+      },
+      {
+        id: 'screen-watch',
+        label: '看屏幕',
+        tier: '仅管理员私聊',
+        note: '看"一段时间里画面变了几次"（不是截一帧：那一帧是 qq_screenshot）。'
+          + '屏幕上有密码、别人的私信、没发出去的草稿，所以只在管理员私聊里放；'
+          + '另有 watchScreen 总开关和时长上限（socialV2.screen）。',
+        tools: ['mcp__snowluma__qq_watch_screen'],
       },
       {
         id: 'file-send',
@@ -1202,6 +1190,18 @@ export function privilegeMatrix() {
           + '读不到主人电脑上别的东西；普通成员私聊整档不开。'
           + '想整体收回就把 config.json 的 socialV2.file.scope 改成 "owner"。',
         tools: ['mcp__snowluma__qq_send_file'],
+      },
+      {
+        id: 'video-watch',
+        label: '看视频',
+        tier: '管理员私聊 + 群聊',
+        note: '给一个链接，她真去把片子切成带时码的宫格图看一遍（不是只读标题和弹幕）。'
+          + '和生图同一档：群里放、普通成员私聊不放。'
+          + '三道闸：守卫这层的会话分档、桥接的 socialV2.tools.watchVideo 总开关、'
+          + '以及每人每天次数上限（socialV2.video.dailyPerSession，默认 5）——'
+          + '它要真下载真转码，不像读一条消息那样便宜。'
+          + '本地文件路径另外只认主人：外面的人只能给链接。',
+        tools: ['mcp__snowluma__qq_watch_video'],
       },
       {
         id: 'web-hand',
@@ -1217,6 +1217,18 @@ export function privilegeMatrix() {
           + '和上面那只「手」借的是同一个浏览器。'
           + '（2026-10-26 工具面审计补上：此前它们跟着前缀白名单落进了"三类全开"。）',
         tools: [...OWNER_BROWSER_READ_TOOLS].sort(),
+      },
+      {
+        id: 'cua-computer-use',
+        label: 'DSH 自带的 computer-use（截屏 / 鼠标 / 键盘）',
+        note: '`cua_driver_native__*` 一整族（实测 70 个）：截屏、点鼠标、敲键盘、拖拽、'
+          + '开关 App、读写剪贴板、accessibility tree、浏览器导航 —— 等价于"主人的手坐在他电脑前"，'
+          + '比本机命令更直接（命令还要写对，这个能直接点「确定」）。'
+          + '只给管理员私聊；工具是运行时从 SDK 问出来的，所以按前缀判、不列名单。'
+          + '（2026-11-02 补的回归网：此前它只是碰巧落进兜底拒绝。）',
+        // 只放一行通配：这族工具是运行时从 SDK 问出来的，枚举会漂移（且七十行没人看）。
+        // verdictFor 按前缀判，所以这一格由真实的判定逻辑算出来，不是这里写死的。
+        tools: [`${CUA_TOOL_PREFIX}*`],
       },
       {
         id: 'web-any-url',
@@ -1237,63 +1249,10 @@ export function privilegeMatrix() {
         tools: [
           'web_search',
           'mcp__web-search-safe__web_search', 'mcp__web-search-safe__web_fetch',
-          'mcp__web-search-safe__bili_video', 'mcp__web-search-safe__web_read_link',
+          'mcp__web-search-safe__web_read_link',
           'mcp__web-search-safe__web_read_more', 'mcp__web-search-safe__web_see',
           'mcp__web-search-safe__web_close',
         ].sort(),
-      },
-      {
-        id: 'games',
-        label: '网页游戏',
-        note: '能直接推进一局对局（开局/掷骰/买地/选方向）。群里任何人拿到它就能搅乱主人正在玩的局，'
-          + '连 game_list 也不放 —— 它会暴露"主人电脑上有哪些游戏"。'
-          + '她能传的只有游戏名 + 动作 id，没有任意 JS / 文件 / 网络。',
-        tools: [...GAME_TOOLS].sort(),
-      },
-      {
-        id: 'phone-readonly',
-        label: '手机只读 + 开关模拟器（免授权）',
-        note: '看设备状态、列连招、开关模拟器进程 —— 不操作手机里的任何内容，所以不用申请。'
-          + '⚠️ 截图 phone_screen 不在这里：截图能看到主人屏幕上的东西，仍然要授权。',
-        tools: [...PHONE_READONLY_OWNER_TOOLS].sort(),
-      },
-      {
-        id: 'permit-gated',
-        // 这一组的三格永远是 ✗（表不带实时授权状态），所以显式给个标签，
-        // 免得读者把「此刻没申请」读成「永久禁用」。真正有授权时 verdictFor 会放行。
-        tier: '要申请才放行（表里 ✗ = 此刻没授权）',
-        label: '要申请才放行（手机 / 刷一轮）',
-        note: '点手机、玩游戏、让 B站 跑一轮 —— 只给管理员私聊，且必须他当场回「同意」'
-          + '（授权写 state/permits.json，到期自动失效）。'
-          + '⚠️ 读表注意：这张表不带实时授权状态，所以这一组三格都显示 ✗ —— '
-          + '它的意思是「此刻没有授权」，不是「永远不给」。管理员私聊里真正判定时，'
-          + '有未过期授权就放行；没申请过会拿到一条「先去 qq_request_permission」的'
-          + '拒绝理由，那不是故障。',
-        tools: [...PERMIT_TOOL_SCOPES.keys()].sort(),
-      },
-      {
-        id: 'bili-read',
-        label: '刷B站 · 只读',
-        note: '搜视频 / 读字幕 / 读评论 / 看登录与额度状态，以及读「她自己账号收到」的通知'
-          + '（未读、评论回复、@ 与点赞）—— 纯读，不产生任何对外动作。'
-          + '逐个列名而不是放行 bili_ 前缀：这个插件出过一次"整台工具都给了那一轮"的事故。',
-        tools: [...BILI_ALLOWED].sort(),
-      },
-      {
-        id: 'bili-owner',
-        label: '刷B站 · 主人专属',
-        note: '发评论 @ 人 —— 群里任何人都不该能拿她这个号公开发言（那看起来就是"她自己乱说话"）。'
-          + '插件自己还有一道闸（autoComment + mentionName），这里放行不等于绕过它。'
-          + '（bili_run 已归到上面「要申请才放行」那一组，不在这里重复。）',
-        tools: [...BILI_OWNER_ONLY].filter((t) => !PERMIT_TOOL_SCOPES.has(t)).sort(),
-      },
-      {
-        id: 'bili-denied',
-        label: '刷B站 · 账号与本机设置',
-        note: '改设置 / 装依赖 / 登录 —— 都会改动本机状态或碰账号凭证。'
-          + '尤其 bili_config 能把自己设成"自动评论"，等于自我提权绕过评论闸。'
-          + '这些由管理员在 DSH 设置页操作，不需要 QQ 会话具备。',
-        tools: [...BILI_DENIED].sort(),
       },
       {
         id: 'mate-status',
@@ -1340,6 +1299,6 @@ export function apply(ctx) {
   //    用的也是同一个函数，所以**界面看到的 = 实际执行的**，不会漂移。
   //    ⚠️ 必须把 exec.agent 传进去：手机/刷B站 的判定要按会话 id 反查 QQ 号，
   //    再读 state/permits.json 看有没有主人当场给的授权。只传名字会让
-  //    permitScopeOf 永远返回「没有授权」—— 那等于把这两类能力永久关死。
+  //    （2026-11-06：这两类能力已整体下线，相关判定一并删除）死。
   ctx.tools.guard((exec) => verdictFor(exec?.name, sessionKind(exec?.agent), { agent: exec?.agent }))
 }

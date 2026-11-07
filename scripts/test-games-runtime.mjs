@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { gamesRoot } from '../src/games/index.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
@@ -78,7 +79,7 @@ test('回设置页走接口，不点带 confirm 的按钮', () => {
 });
 
 test('ui.js 里的接口要有 restartToSetup，且注释写明为什么绕开 confirm', () => {
-  const uiPath = path.resolve(ROOT, '..', '小鲸鱼的游戏', '1.guwan-dafuweng', 'js', 'ui.js');
+  const uiPath = path.join(gamesRoot(), '1.guwan-dafuweng', 'js', 'ui.js');
   if (!fs.existsSync(uiPath)) return; // 主人删了游戏就跳过
   const ui = fs.readFileSync(uiPath, 'utf8');
   assert.match(ui, /window\.__GAME_IO__ = \{/, '游戏要暴露 __GAME_IO__');
@@ -104,7 +105,7 @@ test('玩家名读 state/current-role.json，不写死「小鲸鱼」', () => {
 
 console.log('— 6. 界面就是那一局（不是"另算一份再同步"）—');
 test('她走的是游戏自己的 Engine.choose，界面才会跟着动', () => {
-  const uiPath = path.resolve(ROOT, '..', '小鲸鱼的游戏', '1.guwan-dafuweng', 'js', 'ui.js');
+  const uiPath = path.join(gamesRoot(), '1.guwan-dafuweng', 'js', 'ui.js');
   if (!fs.existsSync(uiPath)) return;
   const ui = fs.readFileSync(uiPath, 'utf8');
   // 接口里的 act 必须调 Engine.choose（它外面包了 renderAll + maybeAuto）

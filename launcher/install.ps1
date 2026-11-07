@@ -367,3 +367,10 @@ Say '  自检：' 'White'
 Say "    node scripts\privacy-scan.mjs        # 确认没把秘密带进仓库"
 Say "    node scripts\test-role-card.mjs      # 确认人格卡能读出来"
 Say ''
+Say '  提醒（不阻断安装，但建议知道）：' 'White'
+Info 'config.example.json / config.template.json 比真实 config.json 少一批新键'
+Info '（selfQQ、sessionRollover、socialV2.tools 里图库/空间/文件/通话/画图等开关，以及 socialV2.photo/file/call/draw 子项）'
+Info '这些键桥接都有默认值、不影响启动；想要完整示例请从 config.json 复制，或看 src/bridge.js 的配置加载处。'
+Info '另有几个测试脚本会读 state/（test-memory-isolation、test-memory-archive、test-index-budget、test-games-runtime、audit-bridge-harness）'
+Info '全新 clone 没有 state/ 会报 ENOENT——先跑一遍本脚本铺 seed 再跑测试。'
+Say ''

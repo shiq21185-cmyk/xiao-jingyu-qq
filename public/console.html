@@ -871,7 +871,7 @@ tr:last-child td {
 #sessionList,#pendingList {
   overflow:auto
 }
-.tool-log-table,.slang-scroll {
+.tool-log-table {
   overflow:auto;
   border:1px solid var(--card-border);
   border-radius:10px;
@@ -882,10 +882,7 @@ tr:last-child td {
   min-width:1000px;
   table-layout:fixed
 }
-.slang-scroll table {
-  min-width:900px
-}
-.tool-log-table thead th,.slang-scroll thead th {
+.tool-log-table thead th {
   position:sticky;
   top:0;
   background:var(--surface-hover);
@@ -903,31 +900,6 @@ tr:last-child td {
 .tool-log-cell.expanded {
   white-space:pre-wrap;
   overflow-wrap:anywhere
-}
-.slang-tabs {
-  display:flex;
-  gap:5px;
-  border-bottom:1px solid var(--card-border);
-  margin:22px 0 18px
-}
-.slang-tab {
-  border:0;
-  border-radius:0;
-  background:transparent;
-  padding:10px 18px;
-  color:var(--muted);
-  font-size:13px
-}
-.slang-tab.active {
-  color:var(--accent);
-  border-bottom:2px solid var(--accent);
-  background:transparent
-}
-.slang-panel {
-  display:none
-}
-.slang-panel.active {
-  display:block
 }
 .empty-state {
   padding:38px 20px;
@@ -1322,12 +1294,6 @@ tr:last-child td {
   }
   #pendingList table {
     min-width:420px
-  }
-  .slang-tabs {
-    gap:0
-  }
-  .slang-tab {
-    padding:10px 14px
   }
   .modal {
     padding:22px
@@ -1788,7 +1754,6 @@ button:active:not(:disabled) {
       <div class="nav-label">聊天行为</div>
       <button data-view="social-v2" class="nav-item"><span class="nav-icon" aria-hidden="true">◈</span>二代仿真<span class="nav-note">V2</span></button>
       <button data-view="social-v1" class="nav-item"><span class="nav-icon" aria-hidden="true">◇</span>一代仿真<span class="nav-note">V1</span></button>
-      <button data-view="slang" class="nav-item"><span class="nav-icon" aria-hidden="true">▤</span>黑话词库</button>
       <button data-view="body" class="nav-item"><span class="nav-icon" aria-hidden="true">◐</span>身体<span class="nav-note">ESP32</span></button>
       <div class="nav-label">管理</div>
       <button data-view="usage" class="nav-item"><span class="nav-icon" aria-hidden="true">◧</span>令牌与花费</button>
@@ -2046,7 +2011,6 @@ button:active:not(:disabled) {
         <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendGroup"> <span><b>qq_send_group_message</b><span class="meta">向指定群发送一条纯文本消息</span></span></label>
         <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendPrivate"> <span><b>qq_send_private_message</b><span class="meta">向指定好友发送一条纯文本消息</span></span></label>
         <label class="v2-tool-item"><input type="checkbox" data-v2-tool="reply"> <span><b>qq_reply</b><span class="meta">引用/回复某条群消息并发送文本</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendBurst"> <span><b>qq_send_burst</b><span class="meta">按数组分多条发送，桥接自动加真人化间隔</span></span></label>
         <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendMessage"> <span><b>qq_send_message</b><span class="meta">统一发送：一条/多条/引用/自定义或按字数计算间隔</span></span></label>
         <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendPoke"> <span><b>qq_send_poke</b><span class="meta">发送 QQ 拍一拍（群聊传 targetUserId，私聊可省）</span></span></label>
         <label class="v2-tool-item"><input type="checkbox" data-v2-tool="waitMessages"> <span><b>qq_wait_for_messages</b><span class="meta">短暂等待新消息，有新消息立即返回或超时返回</span></span></label>
@@ -2059,8 +2023,6 @@ button:active:not(:disabled) {
         <label class="v2-tool-item"><input type="checkbox" data-v2-tool="setWakeConfig"> <span><b>qq_set_wake_config</b><span class="meta">设置唤醒/潜水条件：无限期、有限时间、@/名字/关键词/概率等</span></span></label>
         <label class="v2-tool-item"><input type="checkbox" data-v2-tool="markRead"> <span><b>qq_mark_read</b><span class="meta">标记当前未读为已读（看过但决定不回复）</span></span></label>
         <label class="v2-tool-item"><input type="checkbox" data-v2-tool="memory"> <span><b>qq_memory_append / qq_memory_query</b><span class="meta">轻量记忆：话题/想说的话/群友印象</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="slangQuery"> <span><b>qq_slang_query</b><span class="meta">查询已确认黑话/梗/网络表达</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="slangSubmit"> <span><b>qq_slang_submit</b><span class="meta">AI 提交陌生词/黑话给管理员筛选</span></span></label>
         <label class="v2-tool-item"><input type="checkbox" data-v2-tool="listStickers"> <span><b>qq_list_stickers</b><span class="meta">查看/搜索 QQ 收藏表情（含备注和本地笔记）</span></span></label>
         <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getStickerImage"> <span><b>qq_get_sticker_image</b><span class="meta">看图理解没有备注的收藏表情</span></span></label>
         <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendSticker"> <span><b>qq_send_sticker</b><span class="meta">发送收藏表情（一条消息只能一张，不能带文字）</span></span></label>
@@ -2069,11 +2031,9 @@ button:active:not(:disabled) {
         <label class="v2-tool-item"><input type="checkbox" data-v2-tool="setStickerRemark"> <span><b>qq_set_sticker_remark</b><span class="meta">修改 QQ 官方表情备注（默认禁用，慎用）</span></span></label>
         <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendQzone"> <span><b>qq_send_qzone_msg</b><span class="meta">发表 QQ 空间说说（自主发送，公开内容）</span></span></label>
         <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getQzone"> <span><b>qq_get_qzone_list</b><span class="meta">查看 QQ 空间说说列表（只读，能看见自己发过的说说）</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getAccount"> <span><b>qq_get_account_info</b><span class="meta">查看自己是哪个账号、昵称、好友列表（只读）</span></span></label>
         <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendVoice"> <span><b>qq_send_voice / qq_list_voices</b><span class="meta">发送语音条（只能发语音库里的音频；偶然而为的强表达）</span></span></label>
         <label class="v2-tool-item"><input type="checkbox" data-v2-tool="speak"> <span><b>qq_speak</b><span class="meta">现合成语音：她给你一段文字，本机念出来发成语音条（只需 socialV2.tts.enabled 也开着）</span></span></label>
       </div>
-      <div class="meta" style="margin-top:6px">二代黑话学习：AI 可用 <code>qq_slang_submit</code> 提交陌生词，也可由桥接自动提取；管理员在「黑话词库」页面筛选确认后，词条会自动写入黑话提示词并注入 <code>qq_get_prompt</code> 与后续唤醒。</div>
 
       </div></details>
 <details class="settings-group"><summary>语音库与语音发送（调试）</summary><div class="settings-content">
@@ -2145,7 +2105,7 @@ button:active:not(:disabled) {
 
       </div></details>
 <details class="settings-group"><summary>发送限制</summary><div class="settings-content">
-      <div class="meta" style="margin-bottom:8px">二代不再按空格自动拆条；AI 要分多条必须显式传数组或用 qq_send_burst。</div>
+      <div class="meta" style="margin-bottom:8px">二代不再按空格自动拆条；AI 要分多条必须显式传数组（qq_send_message 传数组就是多条）。</div>
       <div class="row">
         <label style="flex:1">允许多条发送</label><input type="checkbox" id="v2BurstEnabled" style="width:auto">
         <label style="flex:1">单次最多条数</label><input type="number" id="v2BurstMax" min="1" style="width:70px">
@@ -2302,122 +2262,6 @@ button:active:not(:disabled) {
       <div class="meta" style="margin-top:4px">修改上面任意推荐/默认参数后，必须点这个按钮才会持久化；保存后会自动应用到仍使用默认唤醒配置的会话，重启后仍然保留。</div>
 
       </div></section>
-<section id="section-slang" data-page="slang" class="card span-all">
-      <h2>群聊黑话 / 网络用语库</h2>
-      <div class="meta">DSH 会从群聊中自动提取疑似黑话候选；二代仿真模式下 AI 也可用 <code>qq_slang_submit</code> 主动提交陌生词。候选可批量送 DSH 深度联网研究，研究结果回到控制台由你删改修正后转正；确认后的词条会写入“黑话提示词”，注入一代/二代 AI 的聊天上下文，成为 AI 可查询和使用的记忆。</div>
-
-      <div class="slang-tabs">
-        <button class="slang-tab active" data-slang-tab="candidate">候选词</button>
-        <button class="slang-tab" data-slang-tab="confirmed">已确认</button>
-        <button class="slang-tab" data-slang-tab="rejected">已拒绝</button>
-      </div>
-      <span class="meta" id="slangMsg"></span>
-
-      <!-- 候选词面板 -->
-      <div class="slang-panel active" id="slangPanelCandidate">
-        <div class="row" style="margin-top:8px">
-          <label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" id="slangCandidateSelectAll"> 全选</label>
-          <button id="slangBatchResearch" class="small">批量送 DSH 深度研究</button>
-          <button id="slangBatchConfirm" class="small">批量确认（有含义）</button>
-          <button id="slangBatchReject" class="small">批量拒绝</button>
-          <button id="slangBatchDeleteCand" class="small danger">批量删除候选</button>
-          <button id="slangExtract" class="small">立即提取候选</button>
-          <button id="slangResearch" class="small">研究全部候选</button>
-        </div>
-        <div class="row" style="margin-top:8px">
-          <input type="text" id="slangSearchCand" placeholder="搜索词条 / 草稿含义 / 语境证据" style="flex:1">
-          <select id="slangLimitCand" style="width:110px">
-            <option value="50">每页 50</option>
-            <option value="100" selected>每页 100</option>
-            <option value="200">每页 200</option>
-            <option value="500">每页 500</option>
-          </select>
-        </div>
-        <div class="slang-scroll" id="slangCandidateList">加载中…</div>
-      </div>
-
-      <!-- 已确认面板 -->
-      <div class="slang-panel" id="slangPanelConfirmed">
-        <div class="row" style="margin-top:8px">
-          <label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" id="slangConfirmedSelectAll"> 全选</label>
-          <button id="slangBatchDeleteConfirmed" class="small danger">批量删除已确认</button>
-        </div>
-        <div class="row" style="margin-top:8px">
-          <input type="text" id="slangSearchConfirmed" placeholder="搜索词条 / 含义 / 用法 / 示例 / 来源" style="flex:1">
-          <select id="slangLimitConfirmed" style="width:110px">
-            <option value="50">每页 50</option>
-            <option value="100" selected>每页 100</option>
-            <option value="200">每页 200</option>
-            <option value="500">每页 500</option>
-          </select>
-        </div>
-        <div class="slang-scroll" id="slangConfirmedList">加载中…</div>
-      </div>
-
-      <!-- 已拒绝面板 -->
-      <div class="slang-panel" id="slangPanelRejected">
-        <div class="row" style="margin-top:8px">
-          <label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" id="slangRejectedSelectAll"> 全选</label>
-          <button id="slangBatchRestore" class="small">恢复为候选</button>
-          <button id="slangBatchDeleteRejected" class="small danger">批量删除已拒绝</button>
-        </div>
-        <div class="row" style="margin-top:8px">
-          <input type="text" id="slangSearchRejected" placeholder="搜索词条 / 拒绝原因" style="flex:1">
-          <select id="slangLimitRejected" style="width:110px">
-            <option value="50">每页 50</option>
-            <option value="100" selected>每页 100</option>
-            <option value="200">每页 200</option>
-            <option value="500">每页 500</option>
-          </select>
-        </div>
-        <div class="slang-scroll" id="slangRejectedList">加载中…</div>
-      </div>
-
-      <div class="divider"></div>
-      <div class="meta" style="margin-bottom:6px">手动添加黑话</div>
-      <div class="row">
-        <input type="text" id="slangContent" placeholder="词条，如：绝绝子" style="flex:1">
-        <input type="text" id="slangMeaning" placeholder="含义，如：很好、很棒" style="flex:1">
-      </div>
-      <div class="row" style="margin-top:6px">
-        <input type="text" id="slangUsage" placeholder="用法（可选）" style="flex:1">
-        <input type="text" id="slangExample" placeholder="示例（可选）" style="flex:1">
-      </div>
-      <div class="row" style="margin-top:8px">
-        <button id="slangAdd" class="small">添加入库（确认）</button>
-      </div>
-      <details style="margin-top:10px">
-        <summary class="meta">黑话系统参数（可调）</summary>
-        <div class="row">
-          <label style="flex:1">启用黑话学习</label><input type="checkbox" id="slangEnabled" style="width:auto">
-        </div>
-        <div class="row">
-          <label style="flex:1">触发提取最少消息数</label><input type="number" id="slangExtractMin" min="1" style="width:90px">
-        </div>
-        <div class="row">
-          <label style="flex:1">提取冷却（毫秒）</label><input type="number" id="slangCooldown" min="0" step="1000" style="width:110px">
-        </div>
-        <div class="row">
-          <label style="flex:1">研究触发阈值（逗号分隔）</label><input type="text" id="slangThresholds" placeholder="2,4,8" style="width:120px">
-        </div>
-        <div class="row">
-          <label style="flex:1">注入最大条数</label><input type="number" id="slangInjectMax" min="1" max="30" style="width:90px">
-        </div>
-        <div class="row">
-          <label style="flex:1">学习会话 preset</label><input type="text" id="slangLearnerPreset" placeholder="qq-chat" style="width:120px">
-        </div>
-        <div class="row">
-          <label style="flex:1">学习工作区名</label><input type="text" id="slangWorkspaceTitle" placeholder="QQ 黑话学习" style="width:120px">
-        </div>
-        <div class="row">
-          <label style="flex:1">自动联网研究</label><input type="checkbox" id="slangAutoResearch" style="width:auto">
-        </div>
-        <div class="row" style="margin-top:8px">
-          <button id="slangConfigSave" class="small">保存黑话参数</button>
-          <span class="meta" id="slangConfigMsg"></span>
-        </div>
-      </details>
-    </section>
 <section id="section-reference" data-page="reference" class="card span-all">
       <h2>DSH 侧 MCP 工具</h2>
       <div class="meta">由 qq-bridge 的 MCP server 提供给 DSH agent；修改后需重启 DSH 才会刷新工具 schema。</div>
@@ -2425,15 +2269,11 @@ button:active:not(:disabled) {
         <tr><th>工具</th><th>说明</th></tr>
         <tr><td>qq_status</td><td>登录状态（只读）</td></tr>
         <tr><td>qq_list_groups</td><td>群列表（只返回白名单群）</td></tr>
-        <tr><td>qq_get_group_members</td><td>群成员（只读，群号必须白名单）</td></tr>
-        <tr><td>qq_get_group_history</td><td>群历史（只读，含 message_id，可作引用目标）</td></tr>
         <tr><td>qq_send_group_message</td><td>发群消息；可选 <code>replyToMessageId</code> 引用/回复</td></tr>
         <tr><td>qq_reply</td><td>专用“引用/回复”：在群里引用某条消息并发送文本</td></tr>
         <tr><td>qq_send_private_message</td><td>发私聊；可选 <code>replyToMessageId</code> 引用/回复</td></tr>
-        <tr><td>qq_slang_query</td><td>查询已确认黑话/梗/网络表达（只读）</td></tr>
-        <tr><td>qq_slang_submit</td><td>AI 提交陌生词/黑话给管理员筛选</td></tr>
       </table>
-      <div class="meta" style="margin-top:10px">二代仿真模式工具：qq_get_prompt / qq_get_unread_messages / qq_get_recent_messages / qq_social_state / qq_send_burst / qq_send_message / qq_wait_for_messages / qq_set_wake_config / qq_mark_read / qq_memory_* / qq_slang_query / qq_slang_submit 等。</div>
+      <div class="meta" style="margin-top:10px">二代仿真模式工具：qq_get_prompt / qq_get_unread_messages / qq_get_recent_messages / qq_social_state / qq_send_message / qq_wait_for_messages / qq_set_wake_config / qq_mark_read / qq_memory_* 等。</div>
     </section>
 <section id="section-whitelist" data-page="access" class="card span-all">
       <h2>白名单 / 管理员</h2>
@@ -2654,6 +2494,21 @@ button:active:not(:disabled) {
       <div class="meta" style="margin-top:6px">主题前缀在固件里叫 <code>TOPIC_BASE</code>（现在是 <code>whale-1bb62897</code>），改这里必须同步改固件 <code>config.h</code>。换 broker 也一样 —— 固件那边的 <code>BROKER_URI</code> / TLS 是编死的，改完要重新烧录。**这一页的端口/TLS/账号只影响电脑这侧**。</div>
     </section>
 
+    <!-- 眼睛：平时取图走公网 MQTT（2~4fps，还吃额度）。板子插在这台电脑的 USB 上时，
+         可以临时切到串口直出 —— 本地 8~10fps，调焦/摆机位/验画质用它最省事。
+         二选一：它跑着时独占 COM4，烧录会失败，板子也不往 MQTT 推图。 -->
+    <section id="section-body-eye" data-page="body" class="card span-all">
+      <h2>身体 · 眼睛（USB 串口调试）</h2>
+      <div class="meta">把板子用 USB 线插在这台电脑上，点「开始」就能在本机看到 8~10fps 的实时画面（MJPEG 网页）。<b>只在本机</b>，走串口不走云端；调完点「停止」，板子会自动切回控制台模式、继续走 MQTT。</div>
+      <div class="row" style="margin-top:10px">
+        <button id="camUartStart" class="small">开始串口预览</button>
+        <button id="camUartStop" class="small">停止</button>
+        <a id="camUartOpen" href="#" target="_blank" rel="noopener" style="display:none">打开预览页 ↗</a>
+        <span class="meta" id="camUartMsg">未启动</span>
+      </div>
+      <div class="meta" style="margin-top:6px">串口默认 <code>COM4</code>（可用环境变量 <code>QQBRIDGE_CAM_SERIAL</code> 改），网页端口 <code>8765</code>（<code>QQBRIDGE_CAM_PORT</code>）。开着它的时候不要烧录，会占端口。</div>
+    </section>
+
     <section id="section-body-voice" data-page="body" class="card span-all">
       <h2>身体 · 声音</h2>
       <div class="row">
@@ -2722,27 +2577,6 @@ button:active:not(:disabled) {
       <footer class="page-footer"><span>QQ Bridge · 连接日常，保持自主</span><span id="lastUpdated">等待首次同步</span></footer>
     </main>
   </div>
-      <div class="modal-overlay" id="slangModalOverlay">
-      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="slangModalTitle" tabindex="-1">
-        <h3 id="slangModalTitle">确认黑话</h3>
-        <div class="meta" id="slangModalContent" style="margin-bottom:6px"></div>
-        <label>含义 *</label>
-        <input type="text" id="slangModalMeaning" placeholder="必须填写，确认后才会注入 AI 上下文">
-        <label>用法（可选）</label>
-        <input type="text" id="slangModalUsage" placeholder="使用场景 / 语气">
-        <label>示例（可选）</label>
-        <input type="text" id="slangModalExample" placeholder="自然短句示例">
-        <label>风险/慎用说明（可选）</label>
-        <input type="text" id="slangModalRisk" placeholder="敏感 / 慎用风险">
-        <label>参考来源（可选，每行一个 URL）</label>
-        <textarea id="slangModalSources" rows="3" placeholder="https://..."></textarea>
-        <div class="row">
-          <button id="slangModalDirectConfirm" class="small">直接确认（转正）</button>
-          <button id="slangModalSendResearch" class="small">送 DSH 深度研究</button>
-          <button id="slangModalCancel" class="small">取消</button>
-        </div>
-      </div>
-    </div>
 
 
   <div class="toast" id="consoleToast" role="status" hidden></div>
@@ -2889,7 +2723,7 @@ async function saveMode(mode) {
 // 人格提示词 = roles/<名称>.md，桥接每条消息注入，保存即生效。
 let roleEditorState = { mode: 'new', name: '' };
 let roleCache = [];
-let roleInjectMax = 6000;
+let roleInjectMax = 9000;
 
 function setRoleMsg(text, ok) {
   const el = document.getElementById('roleCreateMsg');
@@ -3720,10 +3554,6 @@ function summarizeToolArgs(tool, args) {
     if (obj.gapMs != null) push('gapMs', obj.gapMs);
     if (Array.isArray(obj.gaps) && obj.gaps.length) push('gaps', obj.gaps.join(','));
     if (obj.replyToMessageId != null && obj.replyToMessageId !== '') push('引用id', obj.replyToMessageId);
-  } else if (t.includes('qq_send_burst')) {
-    const msgs = Array.isArray(obj.messages) ? obj.messages : [];
-    push('条数', msgs.length);
-    if (msgs.length) push('首条', String(msgs[0]).slice(0, 30));
   } else if (t.includes('qq_send_poke')) {
     push('key', obj.key);
     if (obj.targetUserId != null && obj.targetUserId !== '') push('target', obj.targetUserId);
@@ -4155,351 +3985,6 @@ async function setSocialPhase(phase) {
 document.getElementById('sStateActive').addEventListener('click', () => setSocialPhase('active'));
 document.getElementById('sStateIdle').addEventListener('click', () => setSocialPhase('idle'));
 
-let slangEntriesCache = [];
-let slangSelected = new Set();
-let slangActiveTab = 'candidate';
-let slangModalId = null;
-let slangModalMode = 'confirm'; // confirm | edit
-
-function slangStatusLabel(status) {
-  return { candidate: '候选', confirmed: '已确认', rejected: '已拒绝' }[status] || esc(status);
-}
-function slangStatusClass(status) {
-  return { candidate: 'pill b', confirmed: 'pill g', rejected: 'pill r' }[status] || 'pill';
-}
-function slangSourceLabel(e) {
-  if (e.source === 'manual') return '手动';
-  if (Array.isArray(e.evidence) && e.evidence.some((ev) => ev.sender === 'AI提交')) return 'AI提交';
-  return '自动提取';
-}
-function slangEvidenceHtml(e) {
-  return Array.isArray(e.evidence) && e.evidence.length
-    ? e.evidence.slice(-2).map((ev) => `<span class="meta">${esc(String(ev.sender || '未知'))}：${esc(String(ev.text || '').slice(0, 30))}</span>`).join('<br>')
-    : '<span class="meta">—</span>';
-}
-function slangSourcesHtml(e) {
-  return Array.isArray(e.sources) && e.sources.length
-    ? e.sources.slice(0, 5).map((s) => `<span class="meta">🔗 ${esc(s)}</span>`).join('<br>')
-    : '';
-}
-function slangSearchFields(e) {
-  return [e.content, e.meaning, e.usage, e.example, e.risk, Array.isArray(e.sources) ? e.sources.join(' ') : '', Array.isArray(e.evidence) ? e.evidence.map((x) => x.text || '').join(' ') : ''].join(' ').toLowerCase();
-}
-function getSlangLimit() {
-  const id = slangActiveTab === 'candidate' ? 'slangLimitCand' : slangActiveTab === 'confirmed' ? 'slangLimitConfirmed' : 'slangLimitRejected';
-  return Math.max(10, Number(document.getElementById(id)?.value) || 100);
-}
-function getSlangSearch() {
-  const id = slangActiveTab === 'candidate' ? 'slangSearchCand' : slangActiveTab === 'confirmed' ? 'slangSearchConfirmed' : 'slangSearchRejected';
-  return String(document.getElementById(id)?.value || '').trim().toLowerCase();
-}
-function selectedIdsForStatus(status) {
-  return [...slangSelected].filter((id) => slangEntriesCache.some((e) => e.id === id && e.status === status));
-}
-function setSlangMsg(text, ok = true) {
-  const msg = document.getElementById('slangMsg');
-  if (!msg) return;
-  msg.textContent = text;
-  msg.className = ok ? 'meta ok' : 'meta err';
-}
-function setSlangTab(tab) {
-  slangActiveTab = tab;
-  document.querySelectorAll('.slang-tab').forEach((btn) => btn.classList.toggle('active', btn.dataset.slangTab === tab));
-  document.querySelectorAll('.slang-panel').forEach((panel) => panel.classList.toggle('active', panel.id === 'slangPanel' + tab[0].toUpperCase() + tab.slice(1)));
-  renderSlangPanel();
-}
-function updateSlangSelectAll(status) {
-  const id = status === 'candidate' ? 'slangCandidateSelectAll' : status === 'confirmed' ? 'slangConfirmedSelectAll' : 'slangRejectedSelectAll';
-  const el = document.getElementById(id);
-  if (!el) return;
-  const list = slangEntriesCache.filter((e) => e.status === status);
-  const q = getSlangSearch();
-  const filtered = q ? list.filter((e) => slangSearchFields(e).includes(q)) : list;
-  el.checked = filtered.length > 0 && filtered.every((e) => slangSelected.has(e.id));
-  el.indeterminate = filtered.some((e) => slangSelected.has(e.id)) && !el.checked;
-}
-
-function renderSlangPanel() {
-  const status = slangActiveTab;
-  const containerId = status === 'candidate' ? 'slangCandidateList' : status === 'confirmed' ? 'slangConfirmedList' : 'slangRejectedList';
-  const box = document.getElementById(containerId);
-  if (!box) return;
-  const list = slangEntriesCache.filter((e) => e.status === status);
-  const q = getSlangSearch();
-  const filtered = q ? list.filter((e) => slangSearchFields(e).includes(q)) : list;
-  if (!filtered.length) {
-    box.innerHTML = '<div class="meta" style="padding:8px">' + (list.length ? '没有符合条件的词条' : (status === 'candidate' ? '暂无候选黑话，等 DSH 自动提取、AI 提交或手动添加' : status === 'confirmed' ? '暂无已确认黑话' : '暂无已拒绝词条')) + '</div>';
-    updateSlangSelectAll(status);
-    return;
-  }
-  const limit = getSlangLimit();
-  const shown = filtered.slice(0, limit);
-  let html = `<div class="meta" style="padding:6px 8px">共 ${filtered.length} 条，显示 ${shown.length} 条（可滚动查找）</div>`;
-  html += '<table><tr><th>选择</th><th>词条</th><th>次数</th><th>来源</th><th>含义 / 用法 / 示例</th><th>参考来源</th><th>语境证据</th><th>操作</th></tr>';
-  for (const e of shown) {
-    const meaning = e.meaning ? esc(e.meaning) : (status === 'candidate' ? '<span class="meta">待研究</span>' : '<span class="meta">无</span>');
-    const checked = slangSelected.has(e.id) ? ' checked' : '';
-    const actions = [];
-    if (status === 'candidate') {
-      actions.push(`<button class="small" data-slang-confirm="${esc(e.id)}">确认</button>`);
-      actions.push(`<button class="small" data-slang-edit="${esc(e.id)}">编辑</button>`);
-      actions.push(`<button class="small" data-slang-reject="${esc(e.id)}">拒绝</button>`);
-    } else if (status === 'confirmed') {
-      actions.push(`<button class="small" data-slang-edit="${esc(e.id)}">编辑</button>`);
-    } else {
-      actions.push(`<button class="small" data-slang-restore="${esc(e.id)}">恢复候选</button>`);
-    }
-    actions.push(`<button class="small danger" data-slang-del="${esc(e.id)}">删</button>`);
-    html += `<tr>
-      <td><input type="checkbox" data-slang-select="${esc(e.id)}"${checked}></td>
-      <td><b>${esc(e.content)}</b><br><span class="${slangStatusClass(status)}">${slangStatusLabel(status)}</span></td>
-      <td>${esc(e.count)}</td>
-      <td>${esc(slangSourceLabel(e))}</td>
-      <td>${meaning}${e.usage ? '<br><span class="meta">用法：' + esc(e.usage) + '</span>' : ''}${e.example ? '<br><span class="meta">例：' + esc(e.example) + '</span>' : ''}${e.risk ? '<br><span class="meta">风险：' + esc(e.risk) + '</span>' : ''}</td>
-      <td>${slangSourcesHtml(e) || '<span class="meta">—</span>'}</td>
-      <td>${slangEvidenceHtml(e)}</td>
-      <td class="row">${actions.join('')}</td>
-    </tr>`;
-  }
-  box.innerHTML = html + '</table>';
-  box.querySelectorAll('[data-slang-select]').forEach((cb) => cb.addEventListener('change', () => {
-    const id = cb.dataset.slangSelect;
-    if (cb.checked) slangSelected.add(id); else slangSelected.delete(id);
-    updateSlangSelectAll(status);
-  }));
-  box.querySelectorAll('[data-slang-confirm]').forEach((btn) => btn.addEventListener('click', () => openSlangModal(btn.dataset.slangConfirm, 'confirm')));
-  box.querySelectorAll('[data-slang-edit]').forEach((btn) => btn.addEventListener('click', () => openSlangModal(btn.dataset.slangEdit, 'edit')));
-  box.querySelectorAll('[data-slang-reject]').forEach((btn) => btn.addEventListener('click', async () => {
-    const r2 = await api('/api/slang/' + btn.dataset.slangReject + '/reject', 'POST', {});
-    if (!r2.ok) alert(r2.error || '拒绝失败');
-    setSlangMsg(r2.ok ? '✅ 已拒绝' : ('❌ ' + (r2.error || '失败')), r2.ok);
-    refreshSlang();
-  }));
-  box.querySelectorAll('[data-slang-restore]').forEach((btn) => btn.addEventListener('click', async () => {
-    const e = slangEntriesCache.find((x) => x.id === btn.dataset.slangRestore);
-    if (!e) return;
-    const r2 = await api('/api/slang/' + e.id, 'PATCH', { status: 'candidate' });
-    if (!r2.ok) alert(r2.error || '恢复失败');
-    setSlangMsg(r2.ok ? '✅ 已恢复为候选' : ('❌ ' + (r2.error || '失败')), r2.ok);
-    refreshSlang();
-  }));
-  box.querySelectorAll('[data-slang-del]').forEach((btn) => btn.addEventListener('click', async () => {
-    if (!confirm('确定删除该黑话？')) return;
-    const r2 = await api('/api/slang/' + btn.dataset.slangDel, 'DELETE', {});
-    if (!r2.ok) alert(r2.error || '删除失败');
-    setSlangMsg(r2.ok ? '✅ 已删除' : ('❌ ' + (r2.error || '失败')), r2.ok);
-    slangSelected.delete(btn.dataset.slangDel);
-    refreshSlang();
-  }));
-  updateSlangSelectAll(status);
-}
-
-async function refreshSlang() {
-  try {
-    const r = await api('/api/slang');
-    slangEntriesCache = r.entries || [];
-    renderSlangPanel();
-  } catch (e) {
-    const box = document.getElementById('slangCandidateList');
-    if (box) box.innerHTML = '<span class="meta">加载失败</span>';
-  }
-}
-
-function openSlangModal(id, mode) {
-  const e = slangEntriesCache.find((x) => x.id === id);
-  if (!e) return;
-  slangModalId = id;
-  slangModalMode = mode;
-  document.getElementById('slangModalTitle').textContent = mode === 'confirm' ? `确认黑话：${e.content}` : `编辑黑话：${e.content}`;
-  document.getElementById('slangModalContent').textContent = mode === 'confirm'
-    ? '你可以直接填写含义/用法并转正，也可以先送 DSH 深度联网研究，研究结果回来后在此处删改再确认。'
-    : '修改后保存；候选不会转正，已确认仍保持已确认。';
-  document.getElementById('slangModalMeaning').value = e.meaning || '';
-  document.getElementById('slangModalUsage').value = e.usage || '';
-  document.getElementById('slangModalExample').value = e.example || '';
-  document.getElementById('slangModalRisk').value = e.risk || '';
-  document.getElementById('slangModalSources').value = Array.isArray(e.sources) ? e.sources.join('\n') : '';
-  document.getElementById('slangModalDirectConfirm').textContent = mode === 'confirm' ? '直接确认（转正）' : '保存修改';
-  document.getElementById('slangModalSendResearch').style.display = mode === 'confirm' && e.status === 'candidate' ? '' : 'none';
-  document.getElementById('slangModalOverlay').classList.add('open');
-}
-function closeSlangModal() {
-  document.getElementById('slangModalOverlay').classList.remove('open');
-  slangModalId = null;
-}
-function readSlangModalPayload() {
-  return {
-    meaning: document.getElementById('slangModalMeaning').value.trim(),
-    usage: document.getElementById('slangModalUsage').value.trim(),
-    example: document.getElementById('slangModalExample').value.trim(),
-    risk: document.getElementById('slangModalRisk').value.trim(),
-    sources: document.getElementById('slangModalSources').value.split(/\n/).map((s) => s.trim()).filter(Boolean)
-  };
-}
-
-document.querySelectorAll('.slang-tab').forEach((btn) => btn.addEventListener('click', () => setSlangTab(btn.dataset.slangTab)));
-document.getElementById('slangSearchCand').addEventListener('input', renderSlangPanel);
-document.getElementById('slangSearchConfirmed').addEventListener('input', renderSlangPanel);
-document.getElementById('slangSearchRejected').addEventListener('input', renderSlangPanel);
-document.getElementById('slangLimitCand').addEventListener('change', renderSlangPanel);
-document.getElementById('slangLimitConfirmed').addEventListener('change', renderSlangPanel);
-document.getElementById('slangLimitRejected').addEventListener('change', renderSlangPanel);
-document.getElementById('slangCandidateSelectAll').addEventListener('change', (e) => {
-  const list = slangEntriesCache.filter((x) => x.status === 'candidate');
-  const q = getSlangSearch();
-  const filtered = q ? list.filter((x) => slangSearchFields(x).includes(q)) : list;
-  for (const x of filtered) { if (e.target.checked) slangSelected.add(x.id); else slangSelected.delete(x.id); }
-  renderSlangPanel();
-});
-document.getElementById('slangConfirmedSelectAll').addEventListener('change', (e) => {
-  const list = slangEntriesCache.filter((x) => x.status === 'confirmed');
-  const q = getSlangSearch();
-  const filtered = q ? list.filter((x) => slangSearchFields(x).includes(q)) : list;
-  for (const x of filtered) { if (e.target.checked) slangSelected.add(x.id); else slangSelected.delete(x.id); }
-  renderSlangPanel();
-});
-document.getElementById('slangRejectedSelectAll').addEventListener('change', (e) => {
-  const list = slangEntriesCache.filter((x) => x.status === 'rejected');
-  const q = getSlangSearch();
-  const filtered = q ? list.filter((x) => slangSearchFields(x).includes(q)) : list;
-  for (const x of filtered) { if (e.target.checked) slangSelected.add(x.id); else slangSelected.delete(x.id); }
-  renderSlangPanel();
-});
-document.getElementById('slangBatchResearch').addEventListener('click', async () => {
-  const ids = selectedIdsForStatus('candidate');
-  if (!ids.length) { alert('请先勾选要研究的候选词'); return; }
-  const r = await api('/api/slang/research', 'POST', { ids });
-  setSlangMsg(r.ok ? `✅ 已送 ${r.count} 条候选到 DSH 深度联网研究，完成后刷新查看结果` : ('❌ ' + (r.error || '失败')), r.ok);
-  if (r.ok) refreshSlang();
-});
-document.getElementById('slangBatchConfirm').addEventListener('click', async () => {
-  const ids = selectedIdsForStatus('candidate');
-  if (!ids.length) { alert('请先勾选要确认的候选词'); return; }
-  if (!confirm(`确定批量确认 ${ids.length} 条候选？缺少含义的会被跳过。`)) return;
-  const r = await api('/api/slang/batch-confirm', 'POST', { ids });
-  setSlangMsg(r.ok ? `✅ 已确认 ${r.confirmedCount} 条，跳过 ${r.skippedCount} 条` : ('❌ ' + (r.error || '失败')), r.ok);
-  if (r.ok) { slangSelected.clear(); refreshSlang(); }
-});
-document.getElementById('slangBatchReject').addEventListener('click', async () => {
-  const ids = selectedIdsForStatus('candidate');
-  if (!ids.length) { alert('请先勾选要拒绝的候选词'); return; }
-  if (!confirm(`确定拒绝 ${ids.length} 条候选？`)) return;
-  const r = await api('/api/slang/batch-reject', 'POST', { ids });
-  setSlangMsg(r.ok ? `✅ 已拒绝 ${r.rejectedCount} 条` : ('❌ ' + (r.error || '失败')), r.ok);
-  if (r.ok) { slangSelected.clear(); refreshSlang(); }
-});
-document.getElementById('slangBatchDeleteCand').addEventListener('click', async () => {
-  const ids = selectedIdsForStatus('candidate');
-  if (!ids.length) { alert('请先勾选要删除的候选词'); return; }
-  if (!confirm(`确定删除 ${ids.length} 条候选？此操作不可恢复！`)) return;
-  const r = await api('/api/slang/batch-delete', 'POST', { ids });
-  setSlangMsg(r.ok ? `✅ 已删除 ${r.removedCount} 条候选` : ('❌ ' + (r.error || '失败')), r.ok);
-  if (r.ok) { slangSelected.clear(); refreshSlang(); }
-});
-document.getElementById('slangBatchDeleteConfirmed').addEventListener('click', async () => {
-  const ids = selectedIdsForStatus('confirmed');
-  if (!ids.length) { alert('请先勾选要删除的已确认词条'); return; }
-  if (!confirm(`确定删除 ${ids.length} 条已确认黑话？此操作不可恢复！`)) return;
-  const r = await api('/api/slang/batch-delete', 'POST', { ids });
-  setSlangMsg(r.ok ? `✅ 已删除 ${r.removedCount} 条已确认` : ('❌ ' + (r.error || '失败')), r.ok);
-  if (r.ok) { slangSelected.clear(); refreshSlang(); }
-});
-document.getElementById('slangBatchDeleteRejected').addEventListener('click', async () => {
-  const ids = selectedIdsForStatus('rejected');
-  if (!ids.length) { alert('请先勾选要删除的已拒绝词条'); return; }
-  if (!confirm(`确定删除 ${ids.length} 条已拒绝词条？此操作不可恢复！`)) return;
-  const r = await api('/api/slang/batch-delete', 'POST', { ids });
-  setSlangMsg(r.ok ? `✅ 已删除 ${r.removedCount} 条已拒绝` : ('❌ ' + (r.error || '失败')), r.ok);
-  if (r.ok) { slangSelected.clear(); refreshSlang(); }
-});
-document.getElementById('slangBatchRestore').addEventListener('click', async () => {
-  const ids = selectedIdsForStatus('rejected');
-  if (!ids.length) { alert('请先勾选要恢复的已拒绝词条'); return; }
-  let okCount = 0;
-  for (const id of ids) {
-    const r = await api('/api/slang/' + id, 'PATCH', { status: 'candidate' });
-    if (r.ok) okCount++;
-  }
-  setSlangMsg(`✅ 已恢复 ${okCount}/${ids.length} 条为候选`);
-  if (okCount) { slangSelected.clear(); refreshSlang(); }
-});
-document.getElementById('slangModalDirectConfirm').addEventListener('click', async () => {
-  if (!slangModalId) return;
-  const payload = readSlangModalPayload();
-  if (!payload.meaning) { alert('请先填写含义，确认后才会注入 AI 上下文'); return; }
-  const e = slangEntriesCache.find((x) => x.id === slangModalId);
-  if (!e) return;
-  const path = slangModalMode === 'confirm' ? `/api/slang/${e.id}/confirm` : `/api/slang/${e.id}`;
-  const r2 = await api(path, slangModalMode === 'confirm' ? 'POST' : 'PATCH', payload);
-  if (!r2.ok) alert(r2.error || '保存失败');
-  setSlangMsg(r2.ok ? (slangModalMode === 'confirm' ? '✅ 已确认转正' : '✅ 已保存') : ('❌ ' + (r2.error || '失败')), r2.ok);
-  closeSlangModal();
-  refreshSlang();
-});
-document.getElementById('slangModalSendResearch').addEventListener('click', async () => {
-  if (!slangModalId) return;
-  const r = await api('/api/slang/research', 'POST', { ids: [slangModalId] });
-  setSlangMsg(r.ok ? `✅ 已送「${slangEntriesCache.find((x) => x.id === slangModalId)?.content || ''}」到 DSH 深度联网研究，稍后刷新查看结果` : ('❌ ' + (r.error || '失败')), r.ok);
-  closeSlangModal();
-  refreshSlang();
-});
-document.getElementById('slangModalCancel').addEventListener('click', closeSlangModal);
-document.getElementById('slangModalOverlay').addEventListener('click', (e) => { if (e.target.id === 'slangModalOverlay') closeSlangModal(); });
-
-document.getElementById('slangAdd').addEventListener('click', async () => {
-  const content = document.getElementById('slangContent').value.trim();
-  const meaning = document.getElementById('slangMeaning').value.trim();
-  const usage = document.getElementById('slangUsage').value.trim();
-  const example = document.getElementById('slangExample').value.trim();
-  if (!content) { alert('词条不能为空'); return; }
-  const r = await api('/api/slang', 'POST', { content, meaning, usage, example });
-  document.getElementById('slangMsg').textContent = r.ok ? '✅ 已添加' : ('❌ ' + (r.error || '失败'));
-  document.getElementById('slangMsg').className = r.ok ? 'meta ok' : 'meta err';
-  if (r.ok) {
-    document.getElementById('slangContent').value = '';
-    document.getElementById('slangMeaning').value = '';
-    document.getElementById('slangUsage').value = '';
-    document.getElementById('slangExample').value = '';
-    refreshSlang();
-  }
-});
-document.getElementById('slangExtract').addEventListener('click', async () => {
-  const r = await api('/api/slang/extract', 'POST', {});
-  setSlangMsg(r.ok ? '✅ 已触发提取' : ('❌ ' + (r.error || '失败')), r.ok);
-});
-document.getElementById('slangResearch').addEventListener('click', async () => {
-  const r = await api('/api/slang/research', 'POST', {});
-  setSlangMsg(r.ok ? ('✅ 已触发研究 ' + r.count + ' 条') : ('❌ ' + (r.error || '失败')), r.ok);
-});
-function loadSlangConfig() {
-  api('/api/slang').then(r => {
-    const c = r.config || {};
-    document.getElementById('slangEnabled').checked = c.enabled !== false;
-    document.getElementById('slangExtractMin').value = c.extractMinMessages ?? 10;
-    document.getElementById('slangCooldown').value = c.extractCooldownMs ?? 300000;
-    document.getElementById('slangThresholds').value = (c.inferenceThresholds || [2, 4, 8]).join(', ');
-    document.getElementById('slangInjectMax').value = c.injectMax ?? 8;
-    document.getElementById('slangLearnerPreset').value = c.learnerPreset || 'qq-chat';
-    document.getElementById('slangWorkspaceTitle').value = c.workspaceTitle || 'QQ 黑话学习';
-    document.getElementById('slangAutoResearch').checked = c.autoResearch !== false;
-  }).catch(() => {});
-}
-document.getElementById('slangConfigSave').addEventListener('click', async () => {
-  const r = await api('/api/slang/config', 'POST', {
-    enabled: document.getElementById('slangEnabled').checked,
-    extractMinMessages: Number(document.getElementById('slangExtractMin').value) || 10,
-    extractCooldownMs: Number(document.getElementById('slangCooldown').value) || 300000,
-    inferenceThresholds: document.getElementById('slangThresholds').value.split(/[,，\s]+/).map(Number).filter(Boolean),
-    injectMax: Number(document.getElementById('slangInjectMax').value) || 8,
-    learnerPreset: document.getElementById('slangLearnerPreset').value.trim(),
-    workspaceTitle: document.getElementById('slangWorkspaceTitle').value.trim(),
-    autoResearch: document.getElementById('slangAutoResearch').checked
-  });
-  const msg = document.getElementById('slangConfigMsg');
-  msg.textContent = r.ok ? '✅ 已保存' : ('❌ ' + (r.error || '失败'));
-  msg.className = r.ok ? 'meta ok' : 'meta err';
-  if (r.ok) loadSlangConfig();
-});
 
 function loadSecurity() {
   api('/api/security').then(r => {
@@ -4571,6 +4056,7 @@ async function loadBodyConfig() {
     const r = await api('/api/body/config');
     if (r.ok) fillBodyForm(r.config);
   } catch {}
+  refreshCamUart();
 }
 document.getElementById('bodyVolume').addEventListener('input', syncBodyVolumeText);
 async function saveBodyConfig(overrides) {
@@ -4633,6 +4119,53 @@ document.getElementById('bodyPing').addEventListener('click', async () => {
   }
 });
 
+// ── 身体 · 眼睛：USB 串口预览的开关 ──────────────────────────────────────
+// 后端就三个接口（GET 状态 / POST start / POST stop），进程归桥接管，
+// 桥接一退就把它收尸，免得板子卡在 1.5M 模式。
+function renderCamUart(state) {
+  const msg = document.getElementById('camUartMsg');
+  const open = document.getElementById('camUartOpen');
+  if (!msg) return;
+  if (state?.running) {
+    msg.textContent = '✅ 正在推送（本地串口）';
+    msg.className = 'meta ok';
+    if (open) { open.href = state.url || 'http://127.0.0.1:8765/'; open.style.display = ''; }
+  } else {
+    msg.textContent = state?.error ? ('❌ ' + state.error) : '未启动（板子这会儿走 MQTT）';
+    msg.className = state?.error ? 'meta err' : 'meta';
+    if (open) { open.style.display = 'none'; }
+  }
+}
+
+async function refreshCamUart() {
+  try {
+    renderCamUart(await api('/api/body/cam-uart'));
+  } catch (error) {
+    renderCamUart({ running: false, error: error?.message || '读不到串口预览状态' });
+  }
+}
+
+document.getElementById('camUartStart')?.addEventListener('click', async () => {
+  const msg = document.getElementById('camUartMsg');
+  if (msg) { msg.textContent = '正在启动（要先切到 1.5M，约 2 秒）…'; msg.className = 'meta'; }
+  try {
+    const r = await api('/api/body/cam-uart/start', { method: 'POST' });
+    renderCamUart(r);
+    // 脚本起来之后要几秒才把网页开出来，稍等再刷一次状态。
+    setTimeout(refreshCamUart, 2500);
+  } catch (error) {
+    renderCamUart({ running: false, error: error?.message || '启动失败' });
+  }
+});
+
+document.getElementById('camUartStop')?.addEventListener('click', async () => {
+  try {
+    renderCamUart(await api('/api/body/cam-uart/stop', { method: 'POST' }));
+  } catch (error) {
+    renderCamUart({ running: false, error: error?.message || '停止失败' });
+  }
+});
+
 async function changeConsoleToken(generate) {
   const input = document.getElementById('consoleTokenInput');
   const msg = document.getElementById('consoleTokenMsg');
@@ -4664,7 +4197,6 @@ const consolePages = {
   persona: ['人格与角色', '给你的伙伴，一点独特个性。', '选择已有角色，或用自己的语言写下新的性格与表达方式。'],
   'social-v2': ['二代仿真', '自主参与，恰到好处。', '管理 AI 的工具、唤醒与发言节奏。展开需要调整的分组，修改后保存参数。'],
   'social-v1': ['一代仿真', '为自然对话，设定合适的节奏。', '调整参与概率、活跃周期和分条发送；所有配置项完整保留。'],
-  slang: ['黑话词库', '读懂群聊里的，言外之意。', '从候选到确认，让 AI 逐渐熟悉大家的表达习惯。'],
   body: ['身体', '让她在你屋里，开口说话。', '配置 ESP32-S3 板子的连接、音量和听音参数，改完下一轮对话就生效。'],
   usage: ['令牌与花费', '每一次思考，都算得清楚。', '实时查看 AI 的 token 消耗与花费，可下钻到每个群、每个好友、每一轮对话。'],
   access: ['访问与安全', '明确边界，安心连接。', '管理允许对话的对象、管理员权限与控制台访问凭证。'],
@@ -4775,11 +4307,11 @@ document.querySelectorAll('input,select,textarea').forEach(input => {
     }
     input.setAttribute('aria-label', label.textContent.trim() + (siblings.length > 1 ? (siblings.indexOf(input) === 0 ? '（下限）' : '（上限）') : ''));
   } else {
-    const names = { consoleTokenInput: '新的控制台访问令牌', closedPreset: '封闭 Agent 使用的 DSH 预设', tsKind: '测试消息目标类型', aiNotifyKind: '后台提醒目标类型', sStateKey: '一代仿真会话', v2SessionSelect: '二代仿真白名单会话', slangLimitCand: '候选词显示数量', slangLimitConfirmed: '已确认词显示数量', slangLimitRejected: '已拒绝词显示数量' };
+    const names = { consoleTokenInput: '新的控制台访问令牌', closedPreset: '封闭 Agent 使用的 DSH 预设', tsKind: '测试消息目标类型', aiNotifyKind: '后台提醒目标类型', sStateKey: '一代仿真会话', v2SessionSelect: '二代仿真白名单会话' };
     input.setAttribute('aria-label', names[input.id] || input.placeholder || input.closest('section')?.querySelector('h2')?.textContent || '设置');
   }
 });
-const primaryActions = ['roleSet','roleCreate','socialSave','v2ConfigSave','v2ConfigSaveTop','wlSave','secSave','consoleTokenSave','tsSend','aiNotifySend','slangAdd','slangConfigSave','slangModalDirectConfirm'];
+const primaryActions = ['roleSet','roleCreate','socialSave','v2ConfigSave','v2ConfigSaveTop','wlSave','secSave','consoleTokenSave','tsSend','aiNotifySend'];
 primaryActions.forEach(id => document.getElementById(id)?.classList.add('primary'));
 document.querySelectorAll('.meta[id$="Msg"], .meta[id$="Msg2"]').forEach(el => el.setAttribute('role','status'));
 document.getElementById('section-mode').querySelector('h2').dataset.note = '选择后即时生效';
@@ -4812,10 +4344,6 @@ searchInput.addEventListener('input', () => {
       setConsolePage(entry.page);
       let ancestor = entry.target.closest('details');
       while (ancestor) { ancestor.open = true; ancestor = ancestor.parentElement.closest('details'); }
-      if (entry.target.closest('.slang-panel')) {
-        const panels = { slangPanelCandidate: 'candidate', slangPanelConfirmed: 'confirmed', slangPanelRejected: 'rejected' };
-        setSlangTab(panels[entry.target.closest('.slang-panel').id]);
-      }
       entry.target.scrollIntoView({ block:'center', behavior:'instant' });
       if (!entry.target.hasAttribute('tabindex') && !entry.target.matches('input,textarea,select,button,summary')) entry.target.tabIndex = -1;
       entry.target.focus({ preventScroll:true });
@@ -4836,22 +4364,6 @@ searchResults.addEventListener('keydown', event => { if (event.key === 'Escape')
 
 // Keyboard support for the existing editor dialog without replacing its save flow.
 let modalPreviousFocus;
-const slangOverlay = document.getElementById('slangModalOverlay');
-new MutationObserver(() => {
-  if (slangOverlay.classList.contains('open')) {
-    modalPreviousFocus = document.activeElement;
-    document.getElementById('slangModalMeaning').focus();
-  } else modalPreviousFocus?.focus();
-}).observe(slangOverlay, { attributes:true, attributeFilter:['class'] });
-slangOverlay.addEventListener('keydown', event => {
-  if (event.key === 'Escape') { event.preventDefault(); closeSlangModal(); }
-  if (event.key === 'Tab') {
-    const controls = [...slangOverlay.querySelectorAll('button,input,textarea,select')].filter(el => !el.disabled && el.getClientRects().length);
-    const first = controls[0], last = controls.at(-1);
-    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-  }
-});
 const tokenToggle = document.createElement('button');
 tokenToggle.id = 'consoleTokenToggle'; tokenToggle.className = 'small'; tokenToggle.textContent = '显示令牌'; tokenToggle.type = 'button'; tokenToggle.setAttribute('aria-pressed','false');
 tokenToggle.addEventListener('click', () => {
@@ -5288,8 +4800,8 @@ document.getElementById('usageClear').addEventListener('click', async () => {
 
 setConsolePage(location.hash.slice(1), { updateHash:false });
 
-refresh(); refreshRoles(); refreshWhitelist(); refreshSessions(); refreshPending(); refreshPresets(); loadSocialForm(); loadV2Config(); refreshV2Activity(); loadV2ToolLog(); loadV2SessionOptions(); refreshSocialStatus(); refreshSlang(); loadSlangConfig(); loadSecurity(); refreshSimPrompt(); refreshDshModel(); refreshUsage(); refreshUsageChart(); refreshUsageRecent();
-setInterval(() => { refresh(); refreshSessions(); refreshPending(); refreshSocialStatus(); refreshSlang(); }, 3000);
+refresh(); refreshRoles(); refreshWhitelist(); refreshSessions(); refreshPending(); refreshPresets(); loadSocialForm(); loadV2Config(); refreshV2Activity(); loadV2ToolLog(); loadV2SessionOptions(); refreshSocialStatus(); loadSecurity(); refreshSimPrompt(); refreshDshModel(); refreshUsage(); refreshUsageChart(); refreshUsageRecent();
+setInterval(() => { refresh(); refreshSessions(); refreshPending(); refreshSocialStatus(); }, 3000);
 // 用量看板只在本页可见时轮询：既保证「实时」，又不让其它页白白多打两份接口。
 setInterval(() => { if (currentConsolePage !== 'usage') return; refreshUsage(); refreshUsageChart(); refreshUsageRecent(); }, 3000);
 // 主题切换（纯前端，不发任何请求；选择写入 localStorage，未选择时跟随系统）

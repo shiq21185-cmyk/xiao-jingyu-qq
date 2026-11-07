@@ -330,7 +330,6 @@ summary:hover { color: var(--accent-hover); }
     <button class="nav-item" data-nav="wait"><span class="nav-icon" aria-hidden="true">⧗</span>等待与超时<span class="nav-badge" data-badge="wait"></span></button>
     <button class="nav-item" data-nav="tools"><span class="nav-icon" aria-hidden="true">☰</span>工具开关<span class="nav-badge" data-badge="tools"></span></button>
     <div class="nav-group">权限</div>
-    <button class="nav-item" data-nav="permit"><span class="nav-icon" aria-hidden="true">⊙</span>申请闸门<span class="nav-badge" data-badge="permit"></span></button>
     <button class="nav-item" data-nav="promise"><span class="nav-icon" aria-hidden="true">◷</span>约好的事<span class="nav-badge" data-badge="promise"></span></button>
     <div class="nav-group">运维</div>
     <button class="nav-item" data-nav="debug"><span class="nav-icon" aria-hidden="true">⌘</span>现场调试<span class="nav-badge" data-badge="debug"></span></button>
@@ -676,57 +675,7 @@ summary:hover { color: var(--accent-hover); }
   </details>
       </div>
 
-      <div class="card" data-page="permit">
-
-  <h2>④ 玩手机 / 刷B站：申请闸门</h2>
-  <p class="desc">
-    手机工具和 <code class="inline">bili_run</code> 默认<b>调不动</b>。她要用得先来问你；你回"同意"才放行。
-    你也可以在这里<b>直接发一张牌子</b>，不用等她开口。
-  </p>
-
-  <h3>当前有效的授权</h3>
-  <div id="grantsBox"><div class="empty">读取中…</div></div>
-
-  <h3>直接批准（不等她申请）</h3>
-  <div class="row">
-    <div class="field">
-      <label>批准哪一类</label>
-      <select id="grantScope">
-        <option value="phone">玩手机（截图 / 点按 / 消消乐）</option>
-        <option value="bili">刷B站（跑一轮）</option>
-      </select>
-    </div>
-    <div class="field">
-      <label>有效多久（分钟，留空用默认）</label>
-      <input type="number" id="grantMinutes" min="1" step="1" placeholder="手机默认 30 / B站默认 60">
-    </div>
-    <button class="primary" id="grantBtn">批准</button>
-    <button id="grantNotifyBtn" title="批准，并给她发一句「批了，去玩吧」">批准并告诉她</button>
-  </div>
-  <p class="hint">
-    上限：手机 120 分钟、B站 180 分钟（超了会截断）。到期自动失效。
-    只对<b>你的私聊</b>有效 —— 群聊和别人的私聊给了也拿不到。
-  </p>
-
-  <h3>她的申请记录</h3>
-  <div id="requestsBox"><div class="empty">读取中…</div></div>
-
-  <details>
-    <summary>闸门到底怎么卡的（点开）</summary>
-    <p class="hint" style="margin-top:8px">
-      判定点在 DSH 里的守卫 <code class="inline">plugins/qq-agent-presets/qq-tool-restrict.mjs</code> 的
-      <code class="inline">verdictFor()</code> —— 不在这个控制台，也不在桥接。因为它拦的那些工具是
-      DSH 直接挂的 MCP server，<b>根本不经过桥接</b>。桥接只负责把申请发给你；这个页面只负责
-      把授权写进 <code class="inline">state/permits.json</code>，守卫读的就是同一个文件。
-    </p>
-    <p class="hint">
-      所以：这个页面关掉、桥接重启，已经批出去的牌子照样按到期时间生效；
-      不点批准就永远拿不到，没有绕过路径。
-    </p>
-  </details>
-      </div>
-
-      <div class="card" data-page="promise">
+<div class="card" data-page="promise">
 
   <h2>⑤ 约好的事（叫起床 / 提醒）</h2>
   <p class="desc">
@@ -1206,49 +1155,7 @@ async function saveTools() {
   }
 }
 
-function renderGrants(permits) {
-  const box = $('grantsBox');
-  const grants = permits?.grants ?? [];
-  if (!grants.length) {
-    box.innerHTML = '<div class="empty">现在没有有效授权 —— 她调手机工具会被拒绝，并提示来问你。</div>';
-    return;
-  }
-  box.innerHTML = `<table>
-    <thead><tr><th>类别</th><th>到期</th><th>还剩</th><th>原因</th><th></th></tr></thead>
-    <tbody>${grants.map((g) => `<tr>
-      <td>${esc(g.label || g.scope)}</td>
-      <td class="mono">${esc(fmtTime(g.expiresAt))}</td>
-      <td><span class="badge ok">${esc(g.remainingText)}</span></td>
-      <td>${esc(g.why || '—')}</td>
-      <td style="text-align:right"><button class="danger" data-revoke="${esc(g.scope)}">收回</button></td>
-    </tr>`).join('')}</tbody></table>`;
-  box.querySelectorAll('[data-revoke]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      try {
-        await api('/api/revoke', { method: 'POST', body: JSON.stringify({ scope: btn.dataset.revoke }) });
-        toast('已收回。', 'ok');
-        await refresh();
-      } catch (e) { toast('收回失败：' + e.message, 'bad'); }
-    });
-  });
-}
 
-function renderRequests(permits) {
-  const box = $('requestsBox');
-  const reqs = (permits?.requests ?? []).slice().reverse();
-  if (!reqs.length) { box.innerHTML = '<div class="empty">她还没申请过。</div>'; return; }
-  const badge = (s) => s === 'granted' ? '<span class="badge ok">已批准</span>'
-    : s === 'denied' ? '<span class="badge bad">被拒 / 超时</span>'
-    : '<span class="badge warn">等待中</span>';
-  box.innerHTML = `<table>
-    <thead><tr><th>时间</th><th>类别</th><th>她说想干嘛</th><th>结果</th></tr></thead>
-    <tbody>${reqs.map((r) => `<tr>
-      <td class="mono">${esc(fmtTime(r.createdAt))}</td>
-      <td>${esc((overview?.scopes?.[r.scope]?.label) || r.scope)}</td>
-      <td>${esc(r.why || '—')}</td>
-      <td>${badge(r.status)}</td>
-    </tr>`).join('')}</tbody></table>`;
-}
 
 function renderPromises(list) {
   const box = $('promisesBox');
@@ -1400,8 +1307,6 @@ async function refresh() {
     renderTools(overview.tools);
     renderTimeline();
     renderConversations();
-    renderGrants(overview.permits);
-    renderRequests(overview.permits);
     renderPromises(overview.promises);
     updateNavBadges();
   } catch (e) {
@@ -1424,31 +1329,6 @@ async function saveProactive() {
   await refresh();
 }
 
-async function grant(notify) {
-  const scope = $('grantScope').value;
-  const minutes = Number($('grantMinutes').value) || 0;
-  try {
-    const data = await api('/api/grant', { method: 'POST', body: JSON.stringify({ scope, minutes: minutes || undefined }) });
-    let msg = `已批准「${overview?.scopes?.[scope]?.label || scope}」，还剩 ${data.remainingText}。`;
-    if (notify) {
-      // ⚠️ 必须发到**你的私聊**：发到群聊就变成"在群里播报批准"，发到别人私聊更离谱。
-      const key = ownerPrivateKey();
-      if (!key) {
-        msg += '\n（没找到你的私聊会话，就没跟她说；牌子已经生效。）';
-      } else {
-        try {
-          await api('/api/notify', {
-            method: 'POST',
-            body: JSON.stringify({ key, text: `✅ 批了，去${scope === 'bili' ? '刷会儿 B站' : '玩会儿手机'}吧。` })
-          });
-          msg += '\n也跟她说了。';
-        } catch (e) { msg += `\n但她那边没发出去：${e.message}`; }
-      }
-    }
-    toast(msg, 'ok');
-    await refresh();
-  } catch (e) { toast('批准失败：' + e.message, 'bad'); }
-}
 
 async function createPromise(kind, at, text) {
   try {
@@ -1543,8 +1423,6 @@ $('resetProactive').addEventListener('click', () => {
   $('idle').value = DEFAULTS.idleThresholdMs / 60000;
   saveProactive().catch((e) => toast(e.message, 'bad'));
 });
-$('grantBtn').addEventListener('click', () => grant(false));
-$('grantNotifyBtn').addEventListener('click', () => grant(true));
 $('promiseBtn').addEventListener('click', () => {
   const at = readPromiseAt();
   if (!at) { toast('先选个日期（点日历图标就能选）', 'bad'); return; }
@@ -1637,7 +1515,6 @@ function updateNavBadges() {
   };
   const off = overview.tools?.offTotal;
   set('tools', off ? `${off} 关` : '');
-  set('permit', (overview.permits?.grants?.length || 0) ? `${overview.permits.grants.length} 张` : '');
   set('promise', (overview.promises?.length || 0) ? `${overview.promises.length} 条` : '');
   set('voice', overview.voice?.speaking ? '' : '关');
 }

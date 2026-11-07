@@ -81,8 +81,11 @@ test('普通请求仍然走 undici（长轮询是例外，不是全改）', () =
 });
 
 test('预算超过 300s 的调用确实存在（否则这条通道没意义）', () => {
-  // request-permission 等主人回话最多 10 分钟 → 620s
-  assert.match(MCP, /timeoutMs: 620000/, '申请闸门需要 >300s 预算');
+  // 生图（qq_draw_image）桥接侧自己等 7 分钟，这里留 570s 余量。
+  // ⚠️ 2026-11-07 对账：原先断言 `timeoutMs: 620000`（给已下线的 request-permission
+  //    申请闸门留的 10 分钟）。申请闸门连同 src/permit-lib.js 一起删掉后那个字面量
+  //    就不存在了，测试没跟着改 ⇒ 一直挂着一条假红。这里对齐真实存在的那一个。
+  assert.match(MCP, /timeoutMs: 570000/, '生图需要 >300s 预算');
   // 等待端点也有长预算
   const long = (MCP.match(/timeoutMs: (\d{6,})/g) || [])
     .map((s) => Number(s.replace(/\D/g, '')))

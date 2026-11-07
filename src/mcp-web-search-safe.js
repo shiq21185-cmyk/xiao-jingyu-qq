@@ -450,32 +450,15 @@ server.tool(
   }
 );
 
-server.tool(
-  'bili_video',
-  '读取一个 B 站视频：接受 b23.tv 短链 / bilibili.com 链接 / BV 号，一次返回视频信息（标题、UP主、播放点赞等数据、简介）以及弹幕和热评的抽样文本。无需登录。'
-  + '比 web_fetch 抓网页更完整：B 站页面正文是 JS 渲染的，直接抓 HTML 只能拿到骨架，弹幕评论都要走数据接口。'
-  + '★如果主人那台电脑上的浏览器正好开着、B站又是登录状态，它会顺手把视频的语音字幕也取回来'
-  + '（"视频里说了什么"最靠这个）；没开浏览器就自动跳过，不等待也不报错，所以你看到没有字幕段是正常的。'
-  + '注意字幕是听音频转写的：只有人说话的地方才有字，画面里发生什么它一个字都没有。'
-  + '群里有人发 B 站链接时优先用它。',
-  {
-    url: z.string().describe('b23.tv 短链、bilibili.com 视频链接，或直接的 BV 号'),
-    danmakuLimit: z.number().optional().describe('弹幕抽样条数，默认 40、最大 120；传 0 表示不要弹幕'),
-    commentLimit: z.number().optional().describe('热评条数，默认 12、最大 30；传 0 表示不要评论'),
-  },
-  async ({ url, danmakuLimit, commentLimit }) => {
-    try {
-      const result = await biliVideo(url, { danmakuLimit, commentLimit });
-      return { content: [{ type: 'text', text: untrusted(result.text) }] };
-    } catch (error) {
-      return {
-        content: [{ type: 'text', text: `读取 B 站视频失败：${error?.message ?? error}` }],
-        isError: true,
-      };
-    }
-  }
-);
-
+// ── `bili_video` 已按主人要求下线（2026-11-06，m05483「刷B站的都不要了」）──────
+//
+// 原来这里注册了一个 `bili_video`：「读标题+UP主+简介+弹幕抽样+热评抽样」。
+// 现在她要真看视频走的是 `qq_watch_video`（桥接那条，能出宫格图看见画面），
+// 只读标题和弹幕这个中间档反而占着几百 token 的工具定义却很少被选中。
+//
+// 底下 `biliVideo()` 这个实现**保留**（不注册而已）：要恢复就把注册块加回来，
+// 函数体一行没动，B 站那几个数据接口也还在。
+//
 // --- 「和他一起看网页」：借主人日常那个浏览器读页面（只读） ---
 // 为什么需要它：web_fetch 走的是普通 HTTP 抓取，对 JS 渲染的站点（小红书、微博、
 // 知乎、小黑盒…）只能拿到空壳；而且没有他的登录态，需要登录的页面也读不到。
@@ -511,7 +494,7 @@ function isBrowserDown(error) {
 
 // ★主人没开浏览器时的降级★
 // 借不到他的登录态、也跑不了页面里的 JS。但普通文章站（新闻、博客、文档）的 HTML
-// 本来就是服务端渲染好的，走 safeFetch 一样能读；B站另有 bili_video 走接口。
+// 本来就是服务端渲染好的，走 safeFetch 一样能读。B站视频要真看一眼，走 qq_watch_video。
 // 所以先拿最便宜的那条路兜一下，兜不住就如实说"打不开"。
 // 为什么由工具自己兜、而不是把报错甩给她再让她自己换工具：她看不见"Edge 没开"
 // 这件事，只会看到一次失败 —— 大概率就此放弃。让工具先把手边能拿到的拿回来更实在。
@@ -602,7 +585,7 @@ async function fallbackAfterBrowserFailure(url, maxChars, browserError) {
           `· 浏览器那条路：${browserError?.message ?? browserError}`,
           `· 普通抓取那条路：${fetchError?.message ?? fetchError}`,
           '',
-          '如实跟主人说"这个我打不开"就行，别硬编。要是 B 站视频，改用 bili_video（它走接口，不需要浏览器）。',
+          '如实跟主人说"这个我打不开"就行，别硬编。要是 B 站视频，改用 qq_watch_video（它走接口，不需要浏览器）。',
         ].join('\n'),
       }],
       isError: true,

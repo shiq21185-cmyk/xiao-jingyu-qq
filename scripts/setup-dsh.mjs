@@ -122,8 +122,13 @@ function yamlSingleQuote(s) {
   return `'${String(s).replace(/'/g, "''")}'`;
 }
 
-// 由桥接托管的 MCP 条目 id：脚本对这三个 id 拥有所有权，可安全地按 id 增删。
-const MANAGED_MCP_IDS = ['mcp-snowluma', 'mcp-snowluma-host', 'mcp-web-search-safe', 'mcp-games'];
+// 由桥接托管的 MCP 条目 id：脚本对这些 id 拥有所有权，可安全地按 id 增删。
+//
+// 2026-11-06：`mcp-games` 摘掉了（主人 m05483「玩手机和game…都不要了」）。
+// 注意这里是"从 profile 里不挂载"，不是删 `src/mcp-games.js` —— 那个文件还在，
+// `scripts/test-games-layer.mjs` 仍读它的源码断言四个工具的形状。
+// 想恢复：把 id 加回这个数组、servers 表里那行取消注释即可，下次 setup 会重新挂上。
+const MANAGED_MCP_IDS = ['mcp-snowluma', 'mcp-snowluma-host', 'mcp-web-search-safe', 'mcp-body'];
 
 function mcpEntries() {
   const node = process.execPath;
@@ -131,8 +136,11 @@ function mcpEntries() {
     'mcp-snowluma': { serverName: 'snowluma', script: path.join(REPO_ROOT, 'src', 'mcp-snowluma-safe.js'), toolCallTimeoutMs: 725000 },
     'mcp-snowluma-host': { serverName: 'snowluma-host', script: path.join(REPO_ROOT, 'src', 'mcp-host-server.js') },
     'mcp-web-search-safe': { serverName: 'web-search-safe', script: path.join(REPO_ROOT, 'src', 'mcp-web-search-safe.js') },
-    // 网页游戏接口（2026-10-22）：通用接入层，加游戏不用改这里，只要在游戏目录放 adapter.js。
-    'mcp-games': { serverName: 'games', script: path.join(REPO_ROOT, 'src', 'mcp-games.js') },
+    // 网页游戏接口（2026-10-22）—— 2026-11-06 按主人要求停止挂载，见上面 MANAGED_MCP_IDS 的注释。
+    // 'mcp-games': { serverName: 'games', script: path.join(REPO_ROOT, 'src', 'mcp-games.js') },
+    // 身体（2026-10-31）：拍照 / 用板子喇叭说话 / 看板子在线状态。
+    // 三个工具都会真的等板子回话（拍照 10~30s、说一句最多 ~2 分钟），所以超时给足。
+    'mcp-body': { serverName: 'body', script: path.join(REPO_ROOT, 'src', 'mcp-body.js'), toolCallTimeoutMs: 240000 },
   };
   let out = '# === qq-bridge MCP BEGIN ===\n';
   out += '# 由 scripts/setup-dsh.mjs 维护；这段区块会被整体替换，请勿手工编辑内部条目。\n';
@@ -369,3 +377,23 @@ reportLegacyPresetDir();
 ensureLocalModeFile();
 autoInstallProfileBundles();
 log('Done. Restart DSH (or reload the profile) so the new presets/MCP take effect.');
+
+// ── 别的 profile 也要写 ──────────────────────────────────────────────────────
+// 为什么会需要这段：DSH 有多个 profile（web / desktop / headless …），
+// **DSH NEXT 桌面版用的是 `desktop`**。脚本原来只写 `web`，于是 mcp-body 挂上了、
+// 桌面版里却一条都没有，表现是"工具就是不出现"（2026-10-31 查了半天）。
+// 不带参数时，把 ~/.dsh/profiles 下除本 profile 之外的常见 profile 各跑一遍；
+// 显式指定了 profile 就只写那一个（保持原来的精确控制）。
+if (!process.argv[2]) {
+  const extraProfiles = ['desktop', 'web'].filter((name) => name !== PROFILE
+    && fs.existsSync(path.join(DSH_HOME, 'profiles', name)));
+  for (const name of extraProfiles) {
+    log(`同时写入 profile: ${name}`);
+    const r = spawnSync(process.execPath, [fileURLToPath(import.meta.url), name], {
+      stdio: 'inherit',
+      env: process.env,
+      windowsHide: true,
+    });
+    if (r.status !== 0) log(`profile ${name} 写入失败（退出码 ${r.status}），可手动重跑：node scripts/setup-dsh.mjs ${name}`);
+  }
+}

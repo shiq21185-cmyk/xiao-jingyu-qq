@@ -10,7 +10,7 @@
     "allowRemote": false
   },
   "role": {
-    "maxInjectChars": 8000
+    "maxInjectChars": 9000
   },
   "snowluma": {
     "wsUrl": "ws://127.0.0.1:3001",

@@ -123,7 +123,7 @@ test('autonomy limits and the observation escape hatch stay described', () => {
     // [SILENT] 是桥接的退出标记，误用会静默吞掉回复。
     '不要用 [SILENT]',
     // 记忆面
-    '【记忆卫生】', 'qq_memory_append', 'qq_memory_query', 'qq_memory_remove', 'qq_memory_clear',
+    '【记忆卫生】', 'qq_memory_append', 'qq_memory_query', 'qq_memory_remove',
     // 2026-10-23 主人要求「告诉她可以索引」：得让她知道能带关键词搜更早的归档，
     // 否则角色卡里那句「更早的 N 条已移出索引…（可搜：xxx）」等于没说。
     '想不起以前的事，就带关键词去搜记忆库',
@@ -131,8 +131,8 @@ test('autonomy limits and the observation escape hatch stay described', () => {
     '更早的记忆归档',
     '不是删了，只是搬走了',
     '先搜关键词，别直接说"我记不清了"',
-    // 黑话面
-    'qq_slang_query', 'qq_slang_submit', '不重复提交',
+    // 黑话面：2026-11-06 主人说「不用黑话了」，整套下线；
+    // 将来恢复黑话功能时，把这两行断言一起加回来，并在预设里补回【黑话学习】那条。
     // 频率上限
     '普通闲聊约 3~5 轮一张', '别刷屏', '每条只能一张，不能附带文字', '不要频繁拍',
     // 会话令牌是硬前置，漏传会被拒绝。
@@ -201,7 +201,6 @@ console.log(`reserved2 persona prefix: ${prefix.length} characters (not a model-
 
 // ── 主动找主人 / 申请闸门 / 时间感 / 约定（2026-10-19 主人要求）─────────────
 // 这一组对应的都是**执行期真会发生的事**：
-//   · 手机与 bili_run 由 qq-tool-restrict 的 PERMIT_TOOL_SCOPES 硬拦（test-permit-gate.mjs 钉住）
 //   · 约定到点由 schema
 // 如果只删提示词，她会拿到 403 却不知道为什么、也不知道该先申请 —— 那是最糟的体验。
 test('proactive reaching-out, permit gate and promises stay described', () => {
@@ -209,12 +208,8 @@ test('proactive reaching-out, permit gate and promises stay described', () => {
     // 想他就可以来找他
     '【想他的时候（私聊）】',
     '想他的时候，可以直接来找他',
-    // 申请闸门
-    '【有件事要问他：先申请】',
-    'qq_request_permission',
-    'scope="phone"',
-    '需要主人当场同意',
-    '别反复申请',
+    // 申请闸门：2026-11-06 手机与 B站 都下线，整条协议已删。
+    // 如果将来重新加回玩具，把上面那五行断言一起恢复。
     // 时间感
     '【时间感：你知道现在几点】',
     '**吃饭的时候说自己也饿了**',

@@ -745,7 +745,13 @@ if ($BodyOff) {
     if ($BodyDir -and (Test-Path $BodyPy)) {
         $probeScript = Join-Path $BodyDir 'tools\body_probe.py'
         if (Test-Path $probeScript) {
-            $argv = @($probeScript, '--timeout', '8') + $BodyOverride
+            # ⚠️ 2026-11-01：探活从 8 秒改成 20 秒。
+            # 实测板子冷启动（拔插电源/整机开机）光是连 Wi-Fi 就要 **16 秒**
+            # （日志：`I (1377) 正在连 Wi-Fi` → `I (16057) Wi-Fi 通了`），
+            # 之后才连 broker。原来只等 8 秒，冷启动时必然判「板子没回心跳」
+            # 而整段跳过身体 —— 用户点一键启动就以为板子没被认出来。
+            # 20 秒给 Wi-Fi 16 秒 + broker 握手几秒，留了点余量。
+            $argv = @($probeScript, '--timeout', '20') + $BodyOverride
             try {
                 $raw = & $BodyPy @argv 2>$null
                 $bodyOnline = ($LASTEXITCODE -eq 0)
@@ -761,6 +767,7 @@ if ($BodyOff) {
         Say ("身体：板子没回心跳（{0}），这次跳过 —— QQ 聊天不受影响" -f $BodyLabel) 'Yellow'
         if ($bodyProbeWhy) { Say ("      原因：{0}" -f $bodyProbeWhy) 'DarkGray' }
         Say '      板子没开机 / 没连上 Wi-Fi？主题前缀和 broker 现在都由控制台「身体」页管' 'DarkGray'
+        Say '      换过板子（d8 <-> 面包板）时最容易踩：前缀是 d8 的 whale-1bb62897，而板子是 whale-8f2a5c31' 'DarkGray'
         Say ("      配置文件：{0}" -f (Join-Path $BridgeDir 'state\body-config.json')) 'DarkGray'
         Say ("      想强行开：双击 {0}" -f (Join-Path $BodyDir 'run-body-talk.cmd')) 'DarkGray'
         Say '      或设 QQBRIDGE_BODY_FORCE=1 再跑一键启动' 'DarkGray'

@@ -65,6 +65,7 @@ export function gamesRoot(env = process.env, cfg = null) {
   const candidates = [
     path.resolve(REPO_ROOT, '..', '小鲸鱼的游戏'),  // 仓库的兄弟目录（当前布局）
     path.resolve(REPO_ROOT, '小鲸鱼的游戏'),        // 仓库内部
+    path.resolve(REPO_ROOT, '..', 'game'),          // 主人 2026-11-02 把目录改名叫 game 了
     path.resolve(REPO_ROOT, '..', 'games'),
   ];
   for (const dir of candidates) {

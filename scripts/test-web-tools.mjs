@@ -19,7 +19,6 @@
 //
 // ⚠️ 本测试直接调 `verdictFor(name, kind)`：`kind` 是 **字符串**（不是 agent 对象），
 //    取值见守卫里的 SESSION_KIND 常量。守卫按 `exec.agent.session.id` 反查得出 kind，
-//    那部分（ownerLookup / sessionKind）由 test-permit-gate.mjs 覆盖 —— 这里只验分档。
 //
 // 跑：node --test scripts/test-web-tools.mjs
 import assert from 'node:assert/strict';

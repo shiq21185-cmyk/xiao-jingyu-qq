@@ -108,7 +108,11 @@ class _DocxBuilder(HTMLParser):
             self.row.append(text)
             return
         if mode.startswith("h") and mode[1:].isdigit():
-            doc.add_heading(text, level=int(mode[1]))
+            heading = doc.add_heading(text, level=int(mode[1]))
+            # 正式文档标题一律黑色（Word 默认 Heading 样式是蓝的，主人不要）
+            from docx.shared import RGBColor  # noqa: PLC0415
+            for run in heading.runs:
+                run.font.color.rgb = RGBColor(0, 0, 0)
             return
         if mode == "li":
             style = "List Number" if self.list_stack and self.list_stack[-1] == "ol" else "List Bullet"

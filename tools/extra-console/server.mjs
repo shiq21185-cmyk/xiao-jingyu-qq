@@ -21,9 +21,6 @@
 //      ⇒ 就算 bridge.js 被整个换成上游新版、我这次加的端点全丢，本控制台的
 //        「主动找人」「现场调试」两栏仍然可用。
 //
-//   ③ **新增能力自己落盘**。授权（permits.json）与约定（promises.json）由本进程
-//      直接读写 state/ 下的文件 —— 而 state/ 在 .gitignore 里，**永远不会**被更新碰。
-//      守卫（plugins/.../qq-tool-restrict.mjs）读的就是同一个 permits.json，
 //      所以"从这里批准"和"她在 QQ 里申请、你回同意"效果完全一致，都不经过桥接。
 //
 // ── 用 ────────────────────────────────────────────────────────────────────
@@ -49,18 +46,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // tools/extra-console/server.mjs → 上两级就是 qq-bridge-deploy 根
 const ROOT = path.resolve(__dirname, '..', '..');
 const STATE_DIR = path.join(ROOT, 'state');
-const PERMIT_FILE = path.join(STATE_DIR, 'permits.json');
 const CONSOLE_TOKEN_FILE = path.join(STATE_DIR, 'console-token');
 const PORT = Number(process.env.EXTRA_CONSOLE_PORT) || 3101;
 const HTML_FILE = path.join(__dirname, 'index.html');
 
-// 与 src/permit-lib.js 保持同一份契约（version/grants/requests）。
-// 刻意**不 import 那个文件**：它是桥接目录下的模块，更新时可能被改名/删掉，
-// 而本进程要能独立存活。代价是两边各有一份形状定义，用 test 对账（见 scripts/test-extra-console.mjs）。
-const PERMIT_SCOPES = {
-  phone: { label: '玩手机', defaultTtlMs: 30 * 60 * 1000, maxTtlMs: 2 * 60 * 60 * 1000 },
-  bili: { label: '刷B站', defaultTtlMs: 60 * 60 * 1000, maxTtlMs: 3 * 60 * 60 * 1000 }
-};
 const PROMISE_KINDS = { wakeup: '叫他起床', remind: '提醒他', checkin: '回来找他' };
 
 function log(...args) {
@@ -88,67 +77,6 @@ function atomicWriteJson(file, obj) {
     try { fs.unlinkSync(tmp); } catch {}
     throw error;
   }
-}
-
-// ── 授权文件（与守卫共用）──────────────────────────────────────────────────
-function readPermits(now = Date.now()) {
-  const raw = readJsonSafe(PERMIT_FILE, null);
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return { version: 1, grants: {}, requests: {} };
-  }
-  const grants = {};
-  for (const [key, perScope] of Object.entries(raw.grants ?? {})) {
-    if (!/^(group|private):\d+$/.test(key)) continue;
-    if (!perScope || typeof perScope !== 'object' || Array.isArray(perScope)) continue;
-    const clean = {};
-    for (const [scope, g] of Object.entries(perScope)) {
-      if (!Object.prototype.hasOwnProperty.call(PERMIT_SCOPES, scope)) continue;
-      const expiresAt = Number(g?.expiresAt);
-      if (!Number.isFinite(expiresAt) || expiresAt <= now) continue;
-      clean[scope] = {
-        expiresAt,
-        grantedAt: Number(g.grantedAt) || 0,
-        requestId: String(g.requestId ?? ''),
-        why: String(g.why ?? '').slice(0, 120)
-      };
-    }
-    if (Object.keys(clean).length) grants[key] = clean;
-  }
-  const requests = {};
-  for (const [id, r] of Object.entries(raw.requests ?? {})) {
-    if (!r || typeof r !== 'object') continue;
-    if (now - (Number(r.createdAt) || 0) > 24 * 60 * 60 * 1000) continue;
-    requests[id] = {
-      id, key: String(r.key ?? ''), scope: String(r.scope ?? ''),
-      why: String(r.why ?? '').slice(0, 200),
-      createdAt: Number(r.createdAt) || 0,
-      status: String(r.status ?? 'pending')
-    };
-  }
-  return { version: 1, grants, requests };
-}
-
-function writePermits(obj) {
-  atomicWriteJson(PERMIT_FILE, obj);
-}
-
-function formatRemaining(ms) {
-  const n = Math.max(0, Number(ms) || 0);
-  const min = Math.ceil(n / 60000);
-  if (min <= 1) return '不到 1 分钟';
-  if (min < 60) return `${min} 分钟`;
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return m ? `${h} 小时 ${m} 分钟` : `${h} 小时`;
-}
-
-function resolveGrant(scope, requestedMs, now = Date.now()) {
-  const def = PERMIT_SCOPES[scope];
-  if (!def) throw new Error(`未知的授权类别：${scope}`);
-  const wanted = Number(requestedMs);
-  let ttl = Number.isFinite(wanted) && wanted > 0 ? wanted : def.defaultTtlMs;
-  ttl = Math.min(def.maxTtlMs, Math.max(60 * 1000, Math.round(ttl)));
-  return { ttlMs: ttl, expiresAt: now + ttl };
 }
 
 // ── 约定文件（本进程独有；桥接的 promises 存在 social-v2.json 里）───────────
@@ -297,7 +225,6 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/overview') {
       const cfg = readJsonSafe(path.join(ROOT, 'config.json'), {});
       const v2 = cfg?.socialV2 ?? {};
-      const permit = readPermits();
       let conversations = [];
       try {
         const data = await bridgeApi('/api/socialV2/states');
@@ -308,6 +235,17 @@ const server = http.createServer(async (req, res) => {
           error: `连不上桥接（${error?.message ?? error}）。桥接没开的话，本控制台只能看不能改。`
         }, 503);
       }
+      // 工具开关的「现值」必须问桥接，不能读 config.json —— 桥接的 `cfg.socialV2` 是
+      // 「文件 + 代码默认值」深度合并后的结果，而 config.json 里只存用户改过的键。
+      // 踩过的坑（2026-11-06）：`watchScreen` 只在 bridge.js 的默认表里，从没写进
+      // config.json，于是旧写法（直接读文件）把它判成 unknown，界面上显示
+      // 「⚠️ 桥接不认识，存不进去」—— 实际上点一下就存进去了，只是文件里还没那一行。
+      let runtimeTools = null;
+      try {
+        const live = await bridgeApi('/api/socialV2/config');
+        const liveTools = live?.config?.tools;
+        if (liveTools && typeof liveTools === 'object' && !Array.isArray(liveTools)) runtimeTools = liveTools;
+      } catch { /* 读不到就用文件里那份，界面照常能用 */ }
       return sendJson(res, {
         ok: true,
         proactive: v2.proactive ?? {},
@@ -361,7 +299,8 @@ const server = http.createServer(async (req, res) => {
         // 现值必须从桥接现读（否则会显示过期状态）。
         // 前端只负责渲染，不做任何拼装 —— 这样两边不会各写一套逻辑。
         tools: (() => {
-          const current = v2.tools ?? {};
+          // 现值优先用桥接运行时那份（含代码默认值）；读不到才退回文件里的。
+          const current = runtimeTools ?? (v2.tools ?? {});
           const flat = flatToolFlags();
           const groups = TOOL_GROUPS.map((g) => ({
             id: g.id,
@@ -419,17 +358,7 @@ const server = http.createServer(async (req, res) => {
         //（否则会选到陌生人的私聊或群聊，点"叫醒"就醒错了地方）。
         ownerQQ: Number(cfg?.ownerQQ) || 0,
         conversations,
-        permits: {
-          grants: Object.entries(permit.grants).flatMap(([key, perScope]) =>
-            Object.entries(perScope).map(([scope, g]) => ({
-              key, scope, label: PERMIT_SCOPES[scope]?.label ?? scope,
-              expiresAt: g.expiresAt, remainingText: formatRemaining(g.expiresAt - Date.now()), why: g.why
-            }))
-          ),
-          requests: Object.values(permit.requests).slice(-40)
-        },
         promises: readPromises().map((p) => ({ ...p, remainingText: formatRemaining(Number(p.at) - Date.now()) })),
-        scopes: PERMIT_SCOPES,
         promiseKinds: PROMISE_KINDS,
         bridge: bridgeBase()
       });
@@ -665,47 +594,6 @@ const server = http.createServer(async (req, res) => {
       const changed = Object.entries(clean).map(([k, v]) => `${k}=${v ? '开' : '关'}`).join('，');
       log(`工具开关已更新：${changed}`);
       return sendJson(res, { ok: true, changed: clean });
-    }
-
-    if (req.method === 'POST' && url.pathname === '/api/grant') {
-      const body = await readBody(req);
-      const scope = String(body?.scope ?? '').trim();
-      if (!Object.prototype.hasOwnProperty.call(PERMIT_SCOPES, scope)) {
-        throw new Error(`未知的授权类别 "${scope}"`);
-      }
-      const key = `private:${String(readJsonSafe(path.join(ROOT, 'config.json'), {})?.ownerQQ ?? '')}`;
-      if (!/^private:\d+$/.test(key)) throw new Error('config.json 里没有 ownerQQ，无法签发授权');
-      const minutes = Number(body?.minutes);
-      const { expiresAt } = resolveGrant(scope, Number.isFinite(minutes) && minutes > 0 ? minutes * 60 * 1000 : undefined);
-      const permit = readPermits();
-      if (!permit.grants[key]) permit.grants[key] = {};
-      permit.grants[key][scope] = {
-        expiresAt,
-        grantedAt: Date.now(),
-        requestId: 'extra-console',
-        why: String(body?.why ?? '专项控制台批准').slice(0, 120)
-      };
-      writePermits(permit);
-      log(`批准 ${key}「${PERMIT_SCOPES[scope].label}」，至 ${new Date(expiresAt).toLocaleString()}`);
-      return sendJson(res, {
-        ok: true,
-        scope,
-        expiresAt,
-        remainingText: formatRemaining(expiresAt - Date.now())
-      });
-    }
-
-    if (req.method === 'POST' && url.pathname === '/api/revoke') {
-      const body = await readBody(req);
-      const scope = String(body?.scope ?? '').trim();
-      const permit = readPermits();
-      const key = `private:${String(readJsonSafe(path.join(ROOT, 'config.json'), {})?.ownerQQ ?? '')}`;
-      if (!permit.grants[key]) return sendJson(res, { ok: true, removed: 0 });
-      if (scope) { delete permit.grants[key][scope]; }
-      else { delete permit.grants[key]; }
-      writePermits(permit);
-      log(`收回 ${key} 的授权（${scope || '全部'}）`);
-      return sendJson(res, { ok: true, removed: 1 });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/promise') {

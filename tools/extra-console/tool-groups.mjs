@@ -43,7 +43,6 @@ export const TOOL_GROUPS = [
       { flag: 'getActiveMembers', tools: ['qq_get_active_members'], note: '看最近谁在说话' },
       { flag: 'getImages', tools: ['qq_get_message_images'], note: '看消息里的图片/表情' },
       { flag: 'getForwardMsg', tools: ['qq_get_forward_msg'], note: '看合并转发；这个描述最长（约 1k token）' },
-      { flag: 'getAccount', tools: ['qq_get_account_info'], note: '看自己账号与好友列表（只给管理员私聊）' },
     ]
   },
   {
@@ -53,7 +52,6 @@ export const TOOL_GROUPS = [
     items: [
       { flag: 'sendMessage', tools: ['qq_send_message'], note: '统一发送：一条/多条/引用' },
       { flag: 'reply', tools: ['qq_reply'], note: '引用回复某条消息' },
-      { flag: 'sendBurst', tools: ['qq_send_burst'], note: '按数组分多条快速发（群聊）' },
       { flag: 'sendGroup', tools: ['qq_send_group_message'], note: '群聊单条文本' },
       { flag: 'sendPrivate', tools: ['qq_send_private_message'], note: '私聊单条文本' },
       { flag: 'sendPoke', tools: ['qq_send_poke'], note: '拍一拍' },
@@ -104,8 +102,8 @@ export const TOOL_GROUPS = [
     items: [
       {
         flag: 'memory',
-        tools: ['qq_memory_append', 'qq_memory_query', 'qq_memory_remove', 'qq_memory_clear'],
-        note: '轻量记忆：话题 / 想说的话 / 对群友的印象。**一个开关管四个工具**'
+        tools: ['qq_memory_append', 'qq_memory_query', 'qq_memory_remove'],
+        note: '轻量记忆：话题 / 想说的话 / 对群友的印象。**一个开关管三个工具**'
       }
     ]
   },
@@ -157,13 +155,8 @@ export const TOOL_GROUPS = [
   {
     id: 'misc',
     label: '其他',
-    note: '游戏、约定、申请、日记',
+    note: '约定、日记',
     items: [
-      {
-        flag: 'requestPermission',
-        tools: ['qq_request_permission'],
-        note: '★ 向我申请玩手机 / 刷B站。关掉她就没法来问你（手机与 bili_run 会被守卫拒绝）'
-      },
       {
         flag: 'promise',
         tools: ['qq_promise', 'qq_promise_done'],
@@ -171,8 +164,6 @@ export const TOOL_GROUPS = [
       },
       { flag: 'writeDiary', tools: ['qq_write_diary'], note: '写日记' },
       { flag: 'readDiary', tools: ['qq_read_diary'], note: '翻日记' },
-      { flag: 'slangQuery', tools: ['qq_slang_query'], note: '查确认过的黑话' },
-      { flag: 'slangSubmit', tools: ['qq_slang_submit'], note: '提交陌生词给管理员筛选' },
       { flag: 'feedback', tools: ['qq_report_feedback'], note: '向你反馈她遇到的问题' },
       { flag: 'waitMessages', tools: ['qq_wait_for_messages'], note: '等她说完再回' },
       { flag: 'markRead', tools: ['qq_mark_read'], note: '标记已读' },
@@ -193,6 +184,23 @@ export const TOOL_GROUPS = [
           + '管理员私聊和群聊都能用（2026-10-29 主人口径：群里也开、别的好友不开）；成本靠日额度管：'
           + '管理员私聊不限，群聊默认 5 张/天（一张约 4 分钱）。'
           + '关掉后这两个工具整个消失'
+      },
+      {
+        flag: 'watchVideo',
+        tools: ['qq_watch_video'],
+        danger: true,
+        note: '★ 看视频（链接 → 切成带时码的宫格图给她看，不是只读标题和弹幕）。'
+          + '管理员私聊和群聊都能用（2026-10-31：和生图同一档，普通成员私聊不开）；'
+          + '要真下载真转码，所以有日额度：管理员私聊不限，其他会话默认 5 次/天'
+          + '（socialV2.video.dailyPerSession）。本地文件路径只认管理员私聊'
+      },
+      {
+        flag: 'watchScreen',
+        tools: ['qq_watch_screen'],
+        danger: true,
+        note: '★ 看屏幕（see-now：看"这段时间画面变了几次"，不是截一帧——那一帧是 qq_screenshot）。'
+          + '**只在管理员私聊开**：屏幕上有密码、别人的私信、没发出去的草稿，'
+          + '群聊和普通成员私聊一律拒（2026-11-03）。另有时长上限 socialV2.screen.maxSeconds（默认 60 秒）'
       },
     ]
   }

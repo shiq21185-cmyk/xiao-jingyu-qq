@@ -306,8 +306,10 @@ test('用真实 daily-memory 重建索引后，仍然是恰好一块', () => {
 
   // 常量：INDEX_WINDOW_DAYS 仍是 7（现在只用于归档关键词抽取的外圈硬窗），
   // 索引展示窗口由 INDEX_RECENT_DAYS 决定。两者是不同的东西，别混。
+  // 2026-11-03 主人从 3 天收成 2 天（「记忆索引还原成两天吧」）；2026-11-07 又改回 3 天
+  // （2 天只留 7 条、预算用掉 28%，记忆召回太不完整）。改的时候留痕。
   test('常量与主人拍板的值一致（展示 3 天 / 上限 30 条 / 外圈 7 天）', () => {
-    assert.equal(INDEX_RECENT_DAYS, 3, '展示窗口（2026-10-23 主人改）');
+    assert.equal(INDEX_RECENT_DAYS, 3, '展示窗口（2026-11-07 主人改回 3 天）');
     assert.equal(INDEX_MAX_ITEMS, 30);
     assert.equal(INDEX_WINDOW_DAYS, 7, '外圈硬窗，只影响归档关键词抽取');
   });
@@ -431,8 +433,8 @@ test('用真实 daily-memory 重建索引后，仍然是恰好一块', () => {
   test('被后来的事取代的条目移出索引，但不删（仍进归档）', () => {
     const mem = {
       items: [
-        day(18, [{ scope: 'private:1', text: '板子还没做视觉' }, { scope: 'private:1', text: '主人说要买个小桌' }]),
-        day(19, [{ scope: 'private:1', text: '视觉也接上了', replaces: '板子还没做视觉' }])
+        day(19, [{ scope: 'private:1', text: '板子还没做视觉' }, { scope: 'private:1', text: '主人说要买个小桌' }]),
+        day(20, [{ scope: 'private:1', text: '视觉也接上了', replaces: '板子还没做视觉' }])
       ]
     };
     const r = selectIndexItems(mem, { now });
@@ -448,8 +450,8 @@ test('用真实 daily-memory 重建索引后，仍然是恰好一块', () => {
     // 悄悄抹掉一条真实记忆，比索引里多一条旧账糟糕得多。
     const mem = {
       items: [
-        day(18, [{ text: '板子还没做视觉' }]),
-        day(19, [{ text: '视觉也接上了', replaces: '完全对不上的另一件事' }])
+        day(19, [{ text: '板子还没做视觉' }]),
+        day(20, [{ text: '视觉也接上了', replaces: '完全对不上的另一件事' }])
       ]
     };
     const r = selectIndexItems(mem, { now });
@@ -460,8 +462,8 @@ test('用真实 daily-memory 重建索引后，仍然是恰好一块', () => {
   test('replaces 只取代更早的：不能拿未来的事去顶掉现在', () => {
     const mem = {
       items: [
-        day(19, [{ text: '视觉也接上了', replaces: '板子还没做视觉' }]),
-        day(18, [{ text: '板子还没做视觉' }])
+        day(20, [{ text: '视觉也接上了', replaces: '板子还没做视觉' }]),
+        day(19, [{ text: '板子还没做视觉' }])
       ]
     };
     const r = selectIndexItems(mem, { now });
@@ -516,7 +518,7 @@ test('用真实 daily-memory 重建索引后，仍然是恰好一块', () => {
     });
     // 不设限的话会是 300 × 49 ≈ 14700 字符，正是"越来越多"的那条曲线
     assert.ok(block.length < 900, `索引块应保持小体积，实际 ${block.length} 字符`);
-    assert.equal(r.archivedCount, 297, '其余全部移出（可检索），不是删掉');
+    assert.equal(r.archivedCount, 300 - INDEX_RECENT_DAYS, '其余全部移出（可检索），不是删掉');
   });
 }
 

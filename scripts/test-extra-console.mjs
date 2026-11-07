@@ -121,7 +121,9 @@ const pageSrc = fs.readFileSync(PAGE, 'utf8');
 {
   assert.ok(serverSrc.includes("'state'"), '应当把数据写进 state/');
   assert.ok(serverSrc.includes('extra-promises.json'), '约定应当写进 state/extra-promises.json');
-  assert.ok(serverSrc.includes('permits.json'), '授权应当写进 state/permits.json（与守卫共用）');
+  // ⚠️ 2026-11-06：申请闸门整套下线（phone / games / bili 都没了），
+  //    控制台不再写 permits.json —— 那个文件现在没有任何人读。
+  //    反过来钉一下：**不能**又悄悄把授权页加回来（加了也不会生效，只会误导）。
 
   const gitignore = fs.readFileSync(path.join(ROOT, '.gitignore'), 'utf8');
   assert.ok(/^state\/$/m.test(gitignore) || /^state\/\s*$/m.test(gitignore),
@@ -384,7 +386,10 @@ const pageSrc = fs.readFileSync(PAGE, 'utf8');
     'voiceEnabled', 'ttsEnabled', 'autoReadback', 'saveVoice', 'voiceOn', 'voiceOff',
     'voiceStatus', 'maxPerMinute', 'maxPerHour',
     'toolsBox', 'saveTools', 'toolsReset', 'toolsStatus', 'toolsDirty',
-    'grantsBox', 'requestsBox', 'grantScope', 'grantMinutes', 'grantBtn', 'grantNotifyBtn',
+    // ⚠️ 2026-11-06：grantsBox / requestsBox / grantScope / grantMinutes /
+    //    grantBtn / grantNotifyBtn 已随「申请闸门」整页拆除（那些工具都下线了，
+    //    页面点了也不生效）。**不要再加回来** —— 加了这里是绿灯，但界面上
+    //    会有一个批准按钮假装能用。
     'promisesBox', 'promiseKind', 'promiseAt', 'promiseText', 'promiseBtn', 'quickWake', 'quickHour',
     'keySelect', 'wakeBtn',
   ];

@@ -22,7 +22,6 @@ import * as asrLib from '../src/asr-lib.js';
 import * as ttsLib from '../src/tts-lib.js';
 import * as diaryLib from '../src/diary-lib.js';
 import * as stateAcl from '../src/state-acl.mjs';
-import * as permitLib from '../src/permit-lib.js';
 import * as timeContext from '../src/time-context.js';
 import { unwrap, createTurnCollector } from '../src/dsh-client.js';
 
@@ -149,13 +148,30 @@ export async function bridgeHarness({ config = {}, savedState, globals = {} } = 
   const timers = new Set();
   const context = vm.createContext({
     fs, path, http, crypto, fileURLToPath, URL, Buffer, AbortSignal, console: { log() {}, error() {} },
+    // os 是 bridge.js 顶层求值要用的：`const WIN_INPUT_DLL = path.join(os.tmpdir(), 'qq-bridge-input-v3.dll')`
+    // 就写在模块顶层（桌面操作那套 Windows 输入脚本旁边）。harness 会把 import 行全剥掉，
+    // 所以每个被 import 的默认导出都得在这里补一份，否则 evalmachine 里就是 ReferenceError。
+    os,
     fetch: fakeFetch,
     // 锁文件探测用（bridge.js 顶层的 consolePortInUse）；
     // 固定桩掉：测试不应该真去 netstat 宿主机。
     execFileSync: () => '',
     // process 桩要带 env：voice-core / bridge 会读 process.env.FFMPEG_PATH、FFPROBE_PATH 等。
     // 之前只给 pid/platform/kill/exit，导致 `process.env.FFMPEG_PATH` 直接抛 TypeError。
-    process: { pid: process.pid, platform: process.platform, kill: process.kill, env: {}, exit: (code) => { throw new Error('unexpected exit ' + code); } },
+    // on 是给 bridge.js:616 的 `process.on('exit', () => camUartStop())` 用的 —— 那行在下面
+    // 的 SIGINT 截断点之前，所以每次都会被求值。缺了它 8 个用本 harness 的测试脚本会整体
+    // 崩在 `process.on is not a function`，把真正要测的东西全盖住（2026-11-02 修）。
+    // cwd / execPath 同理：bridge.js 顶层有 `process.cwd()` 拼路径、`process.execPath` 找 node。
+    process: {
+      pid: process.pid,
+      platform: process.platform,
+      kill: process.kill,
+      env: {},
+      cwd: () => process.cwd(),
+      execPath: process.execPath,
+      on: () => {},
+      exit: (code) => { throw new Error('unexpected exit ' + code); },
+    },
     setTimeout: (fn, ms) => { const timer = setTimeout(fn, ms); timers.add(timer); return timer; },
     clearTimeout, setInterval: () => ({ unref() {} }), clearInterval: () => {},
     NodeApiClient: class { constructor() { return api; } },
@@ -163,7 +179,7 @@ export async function bridgeHarness({ config = {}, savedState, globals = {} } = 
     discoverDshLaunchToken: () => '', unwrap, createTurnCollector,
     ...markdown, ...sensitive, ...wait, ...safeFetch, ...forward, ...slang, ...sticker,
     ...modelPrices, ...tokenLedger, ...voiceLib, ...stateAcl, ...asrLib, ...ttsLib, ...diaryLib,
-    ...permitLib, ...timeContext,
+    ...timeContext,
     // ACL 收紧会 spawn icacls 去改**真实**文件系统；测试不该做这件事（同理见下面的
     // cleanupTemp / processAudioVolume 桩）。桩成成功，让 hardenStateDirAcl 走正常分支。
     hardenDir: () => ({ ok: true, detail: 'stub' }),

@@ -13,11 +13,11 @@
 | 东西 | 在仓库里？ | 说明 |
 | --- | --- | --- |
 | 桥接全部源码、脚本、preset、Web 控制台 | ✅ | `src/` `scripts/` `plugins/` `dsh/` `public/` |
-| **人格卡**（`roles/<角色名>.md`） | ⚠️ 自己写 | 仓库只带 `roles/README.md` 和一张示例卡 `roles/傲娇助手.md`。你的角色卡由你自己创建（控制台「人格与角色」页可新建） |
-| **日记**（`socialV2.diary.dir` 决定，默认 `data/日记/`） | ⚠️ 自己填 | 想搬就把日记同步进 `seed/data/日记/`，`install.ps1` 会恢复（见第 0 步）。**公开仓库不带任何日记** |
-| **长期记忆 / 当前人格 / 模式 / 收藏表情备注** | ⚠️ 自己填 | 填进 `seed/state/`，`install.ps1` 恢复。公开仓库不带 |
-| **群图库的记忆**（`media/index.json`：理由 / 备注 / 标签 / 来源） | ⚠️ 自己填 | 填进 `seed/data/media/`；`install.ps1` 会把它铺到 `<仓库>\media\`（**不是** `data\media\` —— 群图库读的就是那里） |
-| **衣柜 / 皮肤** | ⚠️ 自己填 | 现在是生图服饰库（`qq_draw_image` 的 outfits 参数），不再需要 `seed/wardrobe/` 这套裁好的照片 |
+| **人格卡**（`roles/小鲸鱼.md`） | ✅ | 直接带 |
+| **日记**（`socialV2.diary.dir` 决定，本机指向仓库外 `..\小鲸鱼的日记`） | ✅ | 同步进 `seed/data/日记/`，`install.ps1` 恢复（见第 0 步） |
+| **长期记忆 / 当前人格 / 模式 / 收藏表情备注** | ✅ | `seed/state/` 里带一份，`install.ps1` 恢复 |
+| **群图库的记忆**（`..\media\index.json`：理由 / 备注 / 标签 / 来源） | ✅ | `seed/data/media/` 里带一份；`install.ps1` 会把它铺到 `<仓库>\media\`（**不是** `data\media\` —— 群图库读的就是那里） |
+| **衣柜 / 皮肤**（`socialV2.selfImage.dir` 决定，本机指向仓库外 `..\小鲸鱼皮肤`） | ✅ | `seed/wardrobe/` 里带 7 套裁好的成品；`install.ps1` 铺到 `<仓库>\wardrobe` 并写进新生成的 `config.json` |
 | **群图库的原图**（`..\media\candidate\|library\|trash\`） | ❌ | 别人发来的私人图片，且 URL 带会过期的 `rkey`，不进 git |
 | 官方工具代码（`tools/web-access/`、`tools/asr/*.py`、`tools/extra-console/`） | ✅ | 只带**代码**，不带 venv 与模型 |
 | `config.json`（含你的 QQ 号、token） | ❌ | 被 `.gitignore` 挡住。由 `install.ps1` 从 `config.template.json` 生成空壳，你自己填 |
@@ -27,12 +27,7 @@
 | **ASR/TTS 的 venv、whisper 模型与 `__pycache__`**（实测约 780 MB） | ❌ | 用 `tools/asr/install-asr.ps1` 现场装（2026-10-20 起这三条路径写进了 `.gitignore`） |
 | DSH 本体、`.credentials.yaml`、DSH 的 sessions | ❌ | **绝不能**进仓库。DSH 单独装 |
 
-**一句话**：仓库带的是**代码 + 通用文档**。人格、记忆、日记、衣柜这些「你这台机器上的真实生活」不进库 ——
-公开仓库里没有它们，也不该有。外部的 SnowLuma / Python 环境 / DSH 由脚本或你自己装。
-
-> 🔒 这条边界由 `.gitignore` 末尾那段「公开仓库的私人内容闸门」强制：`/seed/data/`、
-> `/seed/wardrobe/`、`/seed/state/daily-memory.json` 等一律忽略。想整套搬家（私有 fork）时
-> 把那一段删掉即可，但那样推上去就是公开的。
+**一句话**：仓库带的是「代码 + 人格 + 记忆」，外部的 SnowLuma / Python 环境 / DSH 由脚本或你自己装。
 
 ---
 
@@ -73,9 +68,7 @@ Copy-Item ..\media\index.json        seed\data\media\ -Force       # 群图库�
 > **图库的原图字节留在本机**（`/media/` 已被 `.gitignore` 忽略）—— 那些是别人发来的私人图片，
 > 还带着会过期的腾讯直链，不该进 git 历史。仓库里只带 `index.json`（理由、备注、标签、来源）。
 
-人格卡**要自己复制**：公开仓库里只有 `roles/README.md` 和示例卡 `roles/傲娇助手.md`。
-把它拷进 `seed/roles/` 不行 —— `install.ps1` 的 seed 映射只认 `seed/state/` 与 `seed/data/`，
-人格卡请直接放进 `roles/` 并跟着你的私有分支走（或备份到仓库外）。
+人格卡不用复制 —— `roles/小鲸鱼.md` 本身就随仓库走（它不在 `state/` 里，没有被忽略）。
 
 > `seed/` 已经在 `.gitignore` 里做了 `!/seed/**` 豁免，**会**进仓库。
 > 别把 `state/` 里其余文件（`bridge.log`、`console-token`、`social-v2.json`、`sessions.json`、`token-usage.jsonl`、`tool-calls.jsonl`）复制进去 —— 那些是运行时状态和令牌，既没必要也不安全。
@@ -126,22 +119,6 @@ pwsh -File launcher\install.ps1
 
 > ⚠️ 装完 **必须重启 DSH**，preset 与 MCP 才会生效。
 
-#### 第 2.5 步：填你自己的东西（双击就行）
-
-`install.ps1` 只把目录和路径摆好，**QQ 号、白名单、人格名这些它不知道，也猜不出来**。双击根目录的 **`配置向导.bat`**：
-
-1. 一个隐藏进程起来（`launcher\setup-wizard.mjs`，只监听 `127.0.0.1:3220`），浏览器自动弹开配置页
-2. 页面上按顺序填：管理员 QQ（必填）→ 机器人自己的 QQ → 私聊/群白名单 → 人格名 → 路径与端口
-3. 点「保存配置」，写回 `config.json`，顺手在 `roles\` 下建一张空白人格卡（已存在则不动）
-4. 点「完成，关闭向导」把后台进程停掉，再去双击 `一键启动.bat`
-
-页面顶部会显示环境体检（Node 版本 / `node_modules` / SnowLuma / DSH 连通性），有 ✗ 的先按提示补，再往下填。
-
-- 想改端口：`set SETUP_WIZARD_PORT=3221` 后再双击（默认 3220；**3210 已被 `tools/call` 的语音侧车占用**）
-- 向导**不会**碰你已有的记忆、日记、表情、人格卡内容，只写 `config.json` 和 `state/current-role.json`
-- 令牌每次启动都随机生成、不落盘，页面刷新就得重新打开一次
-
-
 ### 第 3 步：装 SnowLuma（本仓库不携带）
 
 SnowLuma 的 EULA §5.4 明确禁止再分发 / 并入第三方安装包 / 用自动化脚本部署，所以仓库里没有它的任何二进制。请自己从官方渠道下载发行包：
@@ -167,11 +144,10 @@ node scripts\get-snowluma.mjs --url https://github.com/SnowLuma/SnowLuma/release
 1. **启动 SnowLuma**，用它的 WebUI（默认 `http://127.0.0.1:5099`，初始密码在数据库里，未改密时会重新生成）登录并接受 EULA
 2. **登录机器人小号**（不是你的大号）
 3. **打开 OneBot**：HTTP 端口 3000、WS 端口 3001，把 access token 记下来
-4. **填 `config.json`**（用 `配置向导.bat` 就有了，下面是它写进去的字段）：
+4. **填 `config.json`**：
    | 字段 | 填什么 |
    | --- | --- |
    | `ownerQQ` | 你自己的 QQ 号（只有它私聊时能用完整本地工具） |
-   | `selfQQ` | 机器人自己的 QQ 号（顶层键，**不是** `socialV2.selfQQ`；不填的话记忆归档分不出她自己发的消息） |
    | `allow.private` | 允许私聊的 QQ 号数组（通常就 ownerQQ） |
    | `allow.groups` | 允许机器人说话的群号数组 |
    | `snowluma.accessToken` | 第 3 步记下的 token（留空也能跑，桥接会自发现） |
@@ -244,7 +220,7 @@ node --check src\bridge.js           # 语法门禁
 | 桥接起来了但 QQ 上毫无反应 | 十有八九是 DSH 端的 preset / MCP 没装或没重启。跑 `node scripts\setup-dsh.mjs desktop`，然后重启 DSH |
 | 报「bridge already running」（退出码 2） | 桥接是单实例的，先关掉另一个窗口 |
 | 连上了但收不到消息 | 见 README「SnowLuma 版本与上游健康」一节：通常是 HTTP token 与 WS token 不一致，或上游版本不匹配 |
-| 人格/记忆没恢复过来 | 先确认 `seed/` 里到底有没有东西（公开仓库克隆下来时是空的）。`install.ps1` 只在目标**不存在**时才铺 `seed/`，想强行覆盖就先把 `roles/<角色名>.md`、`state/daily-memory.json` 改名，再重跑 |
+| 人格/记忆没恢复过来 | `install.ps1` 只在目标**不存在**时才铺 `seed/`。想强行覆盖就先把 `roles\小鲸鱼.md`、`state\daily-memory.json` 改名，再重跑 |
 | 语音不可用 | 没跑 `tools\asr\install-asr.ps1`，或 `config.json` 里 `asr.enabled` / `tts.enabled` 还是 `false` |
 | 控制台打不开 | 端口被占或令牌不对；令牌在 `state\console-token` |
 

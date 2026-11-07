@@ -8,11 +8,11 @@
 >
 > 🎤 独立的「发语音」工具已拆到仓库上一级的 **`../voice-tool/`**（命令行 `voice-cli.mjs` / 图形界面 `voice-gui.mjs`），不再依赖 qq-bridge 运行。
 >
-> 🎛️ **专项控制台**（主动找人 / 申请闸门 / 约定，端口 `3101`）是独立进程，根目录 `专项控制台.bat` 或 `npm run extra-console`。
+> 🎛️ **专项控制台**（主动找人 / 语音 / 工具开关 / 约定，端口 `3101`）是独立进程，根目录 `专项控制台.bat` 或 `npm run extra-console`。
 >
 > 📋 每个版本改了什么见 **[CHANGELOG.md](CHANGELOG.md)**；本次完整说明见 **[docs/releases/v0.2.1-r1.md](docs/releases/v0.2.1-r1.md)**；按天的开发流水见 **[DEVLOG.md](DEVLOG.md)**。
 >
-> 🚚 **换一台机器部署**（带人格 / 记忆 / 日记 / 收藏表情一起搬）见 **[DEPLOY.md](DEPLOY.md)**：克隆后跑一次 `pwsh -File launcher\install.ps1`，再双击 `配置向导.bat` 填自己的 QQ 号与白名单，然后按里面的手动步骤开 SnowLuma。
+> 🚚 **换一台机器部署**（带人格 / 记忆 / 日记 / 收藏表情一起搬）见 **[DEPLOY.md](DEPLOY.md)**：克隆后跑一次 `pwsh -File launcher\install.ps1`，再按里面的手动步骤开 SnowLuma。
 
 把 QQ 消息接入 DSH agent：QQ 好友/群发来的消息会变成 DSH 会话里的用户消息，agent 的回复（含提问、工具审批）会发回 QQ。
 
@@ -127,10 +127,6 @@ npm install        # 安装依赖（postinstall 会自动修补 @snowluma/sdk �
 
 > Windows CMD 用户请用：`copy config.example.json config.json`
 
-> 💡 **不想手改 JSON 就双击 `配置向导.bat`**：它会起一个只监听 `127.0.0.1:3220` 的本地页面，
-> 让你填管理员 QQ、机器人自己的 QQ、私聊/群白名单、人格名，存的时候自动从 `config.template.json`
-> 生成 `config.json`（已存在则保留其余键），顺手建一张空白人格卡。下面的表格是它写进去的字段说明。
-
 > ⚠️ 真实 `config.json` 与 `state/` 不会进入公开仓库，仓库只提供脱敏的 `config.example.json` 模板。
 
 | 字段 | 说明 |
@@ -149,7 +145,6 @@ npm install        # 安装依赖（postinstall 会自动修补 @snowluma/sdk �
 | `socialV2.agentPreset` | `reserved2` 模式使用的 DSH agent preset，默认 `qq-chat-v2` |
 | `workspaceTitle` | QQ 会话在 DSH 界面中的归组名称，默认「QQ 聊天」 |
 | `allow.private` / `allow.groups` | 白名单（QQ 号/群号数组）；留空且 `allowAllWhenEmpty: true` 时放行全部 |
-| `selfQQ` | 机器人自己的 QQ 号（**顶层键**）。不填时记忆归档分不出她自己发的消息 |
 | `deny.*` | 黑名单，优先于白名单 |
 | `ackMessage` | 消息投递后的立即回复，空字符串关闭 |
 | `sendDelayMs` | QQ 连续发送间隔，防止触发频率限制 |
@@ -276,19 +271,14 @@ qq-bridge/
   config.template.json  # 换机器时 install.ps1 用它生成 config.json
   config.example.json   # 配置模板（脱敏占位符；真实 config.json 不入库）
   README.md / README.en.md / RULES.md / DEPLOY.md / LICENSE   # 根目录只留这几个文档，其余全在 docs/
-  配置向导.bat          # 双击开网页向导：填 QQ 号 / 白名单 / 人格名 / 路径（端口 3220）
   一键启动.bat          # 双击启动（自动找 launcher\launch-all.ps1）
   launcher/
     install.ps1         # 换机器后的一次性安装向导（Node/路径/config/seed/npm/DSH）
-    setup-wizard.mjs    # 上面那个「配置向导.bat」背后的本地服务（只听 127.0.0.1）
-    setup-wizard.html   # 它的页面（沿用主控制台的主题变量）
     launch-all.ps1      # 实际启动脚本：paths.json → 环境变量 → 自动探测
     paths.json          # 本机路径（install.ps1 生成，不入库）
   seed/                 # 人格与记忆的种子数据（install.ps1 铺回原位）
-    state/              # current-role / mode（公开仓库只带这两个骨架文件）
-                        # daily-memory / stickers 的备注：你自己填，不进公开仓库
+    state/              # daily-memory / current-role / mode / stickers 的备注
     data/日记/          # 日记 jsonl（默认位置；可用 config.json → socialV2.diary.dir 指到别处）
-                        # ⚠️ 公开仓库不带日记，克隆下来这里是空的
   tools/                # 随仓库带的第三方工具（只带代码，不带 venv/模型）
     web-access/         # 借浏览器登录态读网页（含 LOCAL-PATCH.md）
     asr/                # 入站语音转写 + 出站语音合成（install-asr.ps1 现场建 venv）
@@ -395,6 +385,12 @@ SnowLuma 同一个账号的 **HTTP token（默认 3000 端口）与 WebSocket to
 - **AI 发语音默认关闭**（`socialV2.voice.enabled` 与 `tools.sendVoice` 默认 `false`）：先把音频放进 `audio/`，再到控制台打开开关；你自己发语音不受这个开关影响
 - agent 的 Markdown 回复会转成纯文本（链接保留 `文字 (url)` 形式）
 - `@snowluma/sdk` 的 npm 发布版存在 ESM 扩展名 bug，本仓库通过 postinstall 补丁修复（见 `scripts/patch-snowluma-sdk.mjs`）
+
+## 第三方代码声明
+
+`src/see-now/`（`screen-watch` 的截图拼图核心）vendored 自 **dsh-see-now**，
+按 [Apache-2.0](src/see-now/LICENSE) 授权（Copyright 2026 SAOS-3624），其 [NOTICE](src/see-now/NOTICE)
+随目录一起保留。其余代码按本仓库根目录的 [LICENSE](LICENSE)（MIT）授权。
 
 ## 合规提醒
 

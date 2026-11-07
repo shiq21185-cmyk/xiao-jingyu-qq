@@ -137,8 +137,8 @@
         "setWakeConfig": true,
         "markRead": true,
         "memory": true,
-        "slangQuery": true,
-        "slangSubmit": true,
+        
+        
         "listStickers": true,
         "getStickerImage": true,
         "sendSticker": true,
@@ -255,8 +255,8 @@
         "setWakeConfig": true,
         "markRead": true,
         "memory": true,
-        "slangQuery": true,
-        "slangSubmit": true,
+        
+        
         "listStickers": true,
         "getStickerImage": true,
         "sendSticker": true,
@@ -406,47 +406,6 @@
     "method": "POST",
     "path": "/api/social/flush",
     "body": {}
-  },
-  {
-    "method": "POST",
-    "path": "/api/slang",
-    "body": {
-      "content": "测试词条",
-      "meaning": "很棒",
-      "usage": "赞美",
-      "example": "这个效果很棒。"
-    }
-  },
-  {
-    "method": "POST",
-    "path": "/api/slang/demo-candidate/confirm",
-    "body": {
-      "meaning": "感到安慰",
-      "usage": "轻松聊天",
-      "example": "有被治愈到。",
-      "risk": "无",
-      "sources": [
-        "https://example.invalid/offline-source"
-      ]
-    }
-  },
-  {
-    "method": "POST",
-    "path": "/api/slang/config",
-    "body": {
-      "enabled": true,
-      "extractMinMessages": 14,
-      "extractCooldownMs": 300000,
-      "inferenceThresholds": [
-        3,
-        6,
-        12
-      ],
-      "injectMax": 8,
-      "learnerPreset": "qq-chat",
-      "workspaceTitle": "QQ 黑话学习",
-      "autoResearch": true
-    }
   },
   {
     "method": "POST",

@@ -1,11 +1,8 @@
-// 时间感 / 主动系数 / 申请答复解析 / 授权文件 的单测。
+// 时间感 / 主动系数 的单测。
 //
 // 为什么这几块必须有单测：
 //   · 时段与饭点的边界是**纯算术**，写错一个 `>=` 就会让她半夜十二点问「吃了没」，
 //     而这种错误在真实对话里极难复现（要正好在那个钟点、正好被唤醒）。
-//   · parsePermitAnswer 决定了「他说行不行」—— 把「不同意」误判成同意，
-//     等于把主人的手机交出去。这是本仓库里解释成本最高的一类 bug。
-//   · permit-lib 的 fail-closed 行为（坏文件 = 没授权）必须被钉住。
 //
 // 跑：node --test scripts/test-proactive-time.mjs
 import assert from 'node:assert/strict';
@@ -18,17 +15,6 @@ import {
   formatTimeContext,
   proactiveTimeFactor
 } from '../src/time-context.js';
-import {
-  PERMIT_SCOPES,
-  activeGrant,
-  createRequest,
-  emptyPermitFile,
-  formatRemaining,
-  isKnownScope,
-  prunePermits,
-  readPermitFile,
-  resolveGrant
-} from '../src/permit-lib.js';
 
 // 构造一个本地时间的 Date（不依赖测试机时区地写死 UTC，否则 CI 与开发机结论不同）
 function at(hour, minute = 0, { day = 15, month = 9, year = 2026 } = {}) {
@@ -143,7 +129,6 @@ test('proactiveTimeFactor: meal boosts, dead-of-night without conversation crush
 // ── 申请答复解析 ────────────────────────────────────────────────────────────
 // 注意：parsePermitAnswer 在 bridge.js 里（那个文件会启动桥接，不能直接 import）。
 // 所以这里用**同一张表**的等价规则做断言：把关键用例写成字符串，检查行为口径。
-// 真正的实现由 test-permit-gate.mjs 里的端到端检查覆盖（那里能拿到桥接的函数）。
 // 这里只钉住"哪些说法必须算同意/拒绝"这份口径本身，防止以后改实现时把语义改掉。
 const ALLOW = ['同意', '行', '可以', '去吧', '准了', 'ok', '同意 1 小时', '给你 20 分钟', '同意半小时'];
 const DENY = ['不同意', '不行', '不用了', '算了', '别玩了', '拒绝'];
@@ -155,80 +140,4 @@ test('permit answer vocabulary is unambiguous', () => {
     assert.ok(d.startsWith('不'), `${d} 必须以否定词开头，实现里要先判否定`);
   }
   assert.ok(ALLOW.length > 0 && DENY.length > 0);
-});
-
-// ── 授权文件 ────────────────────────────────────────────────────────────────
-test('permit file is fail-closed: garbage in means no grants', () => {
-  assert.deepEqual(readPermitFile('/definitely/not/here.json', () => null), emptyPermitFile());
-  assert.deepEqual(readPermitFile('/x', () => ({ conversations: 1 })), emptyPermitFile());
-  assert.deepEqual(readPermitFile('/x', () => { throw new Error('boom'); }), emptyPermitFile());
-});
-
-test('permit file keeps only live grants for known scopes and valid keys', () => {
-  const now = Date.now();
-  const file = readPermitFile('/x', () => ({
-    grants: {
-      'private:100000001': {
-        phone: { expiresAt: now + 60000, grantedAt: now, requestId: 'a', why: '想玩' },
-        bili: { expiresAt: now - 1, grantedAt: now, requestId: 'b', why: '过期' },
-        unknownScope: { expiresAt: now + 60000 }
-      },
-      'not-a-key': { phone: { expiresAt: now + 60000 } },
-      'group:1': { phone: { expiresAt: now + 60000 }, junk: 'x' }
-    },
-    requests: {}
-  }));
-  assert.deepEqual(Object.keys(file.grants).sort(), ['group:1', 'private:100000001']);
-  assert.deepEqual(Object.keys(file.grants['private:100000001']), ['phone'], '过期与未知 scope 必须被丢掉');
-  assert.equal(activeGrant(file, 'private:100000001', 'phone')?.why, '想玩');
-  assert.equal(activeGrant(file, 'private:100000001', 'bili'), null);
-});
-
-test('resolveGrant clamps to each scope bounds', () => {
-  const now = 1_000_000;
-  // 不传 → 默认值
-  assert.equal(resolveGrant('phone', { now }).ttlMs, PERMIT_SCOPES.phone.defaultTtlMs);
-  // 要太多 → 截到上限
-  assert.equal(resolveGrant('phone', { now, requestedMs: 99 * 60 * 60 * 1000 }).ttlMs, PERMIT_SCOPES.phone.maxTtlMs);
-  // 要太少 → 抬到 1 分钟
-  assert.equal(resolveGrant('phone', { now, requestedMs: 1 }).ttlMs, 60 * 1000);
-  // 未知 scope 必须抛（不能悄悄给个默认值）
-  assert.throws(() => resolveGrant('nope', { now }), /未知的授权类别/);
-  assert.equal(isKnownScope('phone'), true);
-  assert.equal(isKnownScope('constructor'), false, '原型链上的名字不能被当成合法 scope');
-  assert.equal(isKnownScope('__proto__'), false);
-});
-
-test('prunePermits drops expired grants and stale requests', () => {
-  const now = Date.now();
-  const pruned = prunePermits({
-    grants: {
-      'private:1': {
-        phone: { expiresAt: now + 1000 },
-        bili: { expiresAt: now - 1000 }
-      }
-    },
-    requests: {
-      old: { key: 'private:1', scope: 'phone', createdAt: now - 25 * 60 * 60 * 1000 },
-      fresh: { key: 'private:1', scope: 'phone', createdAt: now - 1000 }
-    }
-  }, now);
-  assert.deepEqual(Object.keys(pruned.grants['private:1']), ['phone']);
-  assert.deepEqual(Object.keys(pruned.requests), ['fresh']);
-});
-
-test('createRequest makes a pending, uniquely-ided request', () => {
-  const a = createRequest({ key: 'private:1', scope: 'phone', why: '想玩消消乐' });
-  const b = createRequest({ key: 'private:1', scope: 'phone', why: '想玩消消乐' });
-  assert.notEqual(a.id, b.id, '两次申请必须拿到不同 id');
-  assert.equal(a.status, 'pending');
-  assert.equal(a.why, '想玩消消乐');
-  assert.throws(() => createRequest({ key: 'private:1', scope: 'bogus' }), /未知的授权类别/);
-});
-
-test('formatRemaining is human', () => {
-  assert.equal(formatRemaining(30 * 1000), '不到 1 分钟');
-  assert.equal(formatRemaining(20 * 60 * 1000), '20 分钟');
-  assert.equal(formatRemaining(90 * 60 * 1000), '1 小时 30 分钟');
-  assert.equal(formatRemaining(2 * 60 * 60 * 1000), '2 小时');
 });

@@ -90,14 +90,14 @@
 - `专项控制台.bat`（ASCII 版）：`EXTRA_CONSOLE_PORT=3198` 跑起来，healthz 返回
   `{"ok":true,"bridge":"http://127.0.0.1:3100","hasToken":true}`，测试进程已清理，真 3101 未受影响。
 - `node scripts/test-encoding.mjs` → **15 通过 0 失败**；`node scripts/test-audit.mjs` → **59/59**；
-  `node scripts/privacy-scan.mjs` → 264 文件、`✅ 未发现敏感信息。`
+  `node scripts/privacy-scan.mjs` → 284 文件、`✅ 未发现敏感信息。`
 
 **留给明天**
 
 - `LICENSE` 在 GitHub 上显示 `NOASSERTION`：MIT 正文后面还跟着一段中文「第三方组件与合规边界」，
   识别器不认。想让它显示 MIT，得把那一段拆成 `THIRD-PARTY.md`。
 
-> 提交：`a8a6fba`
+> 提交：`7b599cc`
 
 ---
 
@@ -1136,3 +1136,454 @@ chat / closed-agent，按 v2 开关摘会误伤别的模式）、只读标识类
 - 日记里 10-17 那条写着「明天接着打消消乐」，之后就没再提 —— 她可能真的忘了，也可能只是没写。先不动，观察。
 
 > 提交：`d9941c5`（release）、`cd10c7e`（merge）
+
+---
+
+# 2026-10-31 · 身体的眼睛接进 QQ（mcp-body）
+
+他在 QQ 里问「你能看见我吗」，她回「视频还没有接入」——不是坏了，是**她手上根本没有摄像头工具**。
+
+## 做了什么
+
+1. `src/mcp-body.js`（新，name `body` v0.1.0），三个工具，全部只调 `rot/tools` 里已经在实物上验过的脚本，不在 MCP 层重写协议：
+   - `body_photo` → `body_camera.py --json`：真拍一张，回本机绝对路径 + 字节数；发不发给他由她决定（`qq_send_file`）。
+   - `body_say` → `body_say.py`：用屋里那块板子的喇叭念一句（不进聊天窗）。
+   - `body_status` → `body_probe.py --timeout 8`：把 pong 翻成人话（IP / 信号 / 内存 / 开机分钟 / 麦克风轮次 / 喇叭包数）。
+   解释器用 `tools/asr/.venv/Scripts/python.exe`；`spawnSync` 收 buffer 再按 utf-8→gbk 解码；超时 30s / 180s / 30s（说整段话要等音频发完）。
+2. `scripts/setup-dsh.mjs` 注册：`MANAGED_MCP_IDS` 加 `mcp-body`，`servers` 里给 `toolCallTimeoutMs: 240000`。跑一次后 `~/.dsh/profiles/web/cordis.patch.yml` 里有 `- id: mcp-body` / `serverName: body`。
+3. `dsh/agent-presets/qq-chat-v2/agent.cordis.yml` 加【身体：有眼睛、有嘴】：**工具挂上了她也得知道该用**；同时写死两条纪律——拍完别编画面（工具只回路径）、板子不在线就直说没应。
+
+## 实测
+
+手写 JSON-RPC（`rot/.tmp/mcp_probe.mjs`：initialize → initialized → tools/list → tools/call）过了一遍：
+
+- `init` → `{"name":"body","version":"0.1.0"}`；`tools` → `body_photo, body_say, body_status`
+- `body_status` → 「板子在线：IP 192.168.1.105，信号 -53 dBm，剩余内存 7.3 MB，开机 23 分钟；麦克风轮次 23742、喇叭已收 514 包（缺料 0）。」
+- `body_photo` → 「拍好了，1 张：`...
+ot\.tmp\camody_20261031_175740_00.jpg`（16111 字节）」
+
+## 第三个坑：守卫的白名单（她原话「工具没有加入桥接的白名单」）
+
+工具挂上了、模型也看得见，但一调就被拒 —— 因为执行期还有一道 `plugins/qq-agent-presets/qq-tool-restrict.mjs`
+的白名单：**不认识的名字一律兜底拒绝**（fail-closed，这是对的）。
+
+已登记 `BODY_EYE_TOOLS`（`mcp__body__body_photo` / `body_say` / `body_status`），
+判定同「身体那张嘴」：**只给管理员私聊** —— 摄像头对着他屋里，拍到的可能是他本人和房间；
+状态里还有他家内网 IP。群聊/普通成员私聊的拒绝文案写成人话（"它对着的是主人屋里的摄像头和音箱"），
+不写"权限不足"，免得她以为是用错工具反复重试。
+
+权能矩阵也加了「身体的眼睛 · 屋里的摄像头」一组，控制台上能看见这一档。
+`node scripts/test-tool-classification.mjs` → 83 个 MCP 工具、25 组 133 行、全覆盖；
+`node scripts/test-agent-preset-patches.mjs` 也过。
+
+> 教训：**加 MCP 工具 = 三处**（MCP server、profile 的 cordis.patch.yml、这个守卫文件）。
+> 少一处就是"挂上了但用不了"。另外 `setup-dsh.mjs` 只写 `web` profile，
+> 桌面版 DSH 用的是 `desktop`，两处都得有。
+
+## 还差一步
+
+**重启 DSH NEXT**，MCP 子进程才会重新挂载。顺带记两件今天一起修的：
+
+- `state/body-config.json` 的 `base` 还是 d8 的 `whale-1bb62897`，导致「一键启动」探活失败、直接跳过「耳朵和嘴」→ 已改成 `whale-8f2a5c31`，并在 `launcher/launch-all.ps1` 的失败提示里加了「换过板子最容易踩前缀」。
+- `setup-dsh.mjs` 最后一步 `dsh plugin --profile web install` 仍然退出码 1（`DSH NEXT.exe` 把参数当 JS 入口）。MCP 条目本身已写进 profile，不影响挂载；那一步要不要修另说。
+
+## 后来（同日）：三件事，都是她在真聊天里撞出来的
+
+### 1. `body_photo` 只回路径 = 她说「我这边真的只有路径，没有画面」（她原话）
+
+工具挂上、守卫也放行了，她还是说看不到 —— 因为 `body_photo` 原来只把**文本路径**放进 `content`。
+模型手里没有像素，自然"描述不出来"。
+
+改成：成功时把每张 JPEG 读成 `{ type: 'image', data: <base64>, mimeType: 'image/jpeg' }`
+放进 `content`，后面跟一条短文本（640x480、定焦约 40cm、要发给他就 `qq_send_file`）。
+工具描述里也写明了这次修复，免得以后有人又改成"只回路径"。
+
+> 教训：**MCP 工具回图像要走 image 内容块**，不是给路径。给路径对模型等于没拍。
+
+### 2. `setup-dsh.mjs` 现在默认把 `web` + `desktop` 都写
+
+今天查"工具就是不出现"查了半天，根因是 **DSH NEXT 桌面版跑的是 `desktop` profile**，
+而脚本默认只写 `web`。MCP 条目在 `web/cordis.patch.yml` 里躺得好好的，桌面版一条没有。
+
+现在不带参数时会遍历 `~/.dsh/profiles` 下存在的 `desktop` / `web`（除当前那个），
+各跑一遍自己（`node scripts/setup-dsh.mjs <name>`）；显式给 profile 还是只写那一个。
+实测 `node scripts/setup-dsh.mjs` → 两个 profile 的 `cordis.patch.yml` 都有 `- id: mcp-body`。
+
+### 3. 「一次对话看一眼」：判据用桥接自己的，别另立一个
+
+他定的规则（原话）：
+「可以消息触发，但是不要我发的每一条消息都在触发，可以是我每一次对话触发一下，
+等待本次聊天结束，下一次开启聊天才再拍一张，主动要求和她自己觉得该拍了不在这个限制内」。
+
+第一版我自己拍了个 `CONV_GAP_MS = 20 分钟`。他当场纠正：
+「判定就是"距上一条消息多久"——没有真正的"聊天结束"信号。这个可以参考 qqbot 的桥接，那个应该有规定」。
+
+一查，桥接里**本来就有**这套：
+
+- `quietGrantMs()` —— 默认 **2.5 分钟**（`cfg.socialV2.autonomy.quietGrantMs`，
+  控制台「自由时间」栏可改，钳制 [10s, 60min]），常量 `AUTONOMOUS_QUIET_GRANT_MS_DEFAULT`；
+- `st.lastIncomingAt` —— 持久化在社交状态里；
+- `scheduleQuietAutonomy()` 的注释原话：「静默本身就证明"这段对话结束了"，比任何猜测都可靠」。
+
+所以第二版删掉自造的 20 分钟，改成 `convGlanceGapMs()`（默认 = `quietGrantMs()`，
+`QQBRIDGE_CONV_GAP_MIN` 可单独给摄像头改），拿 `st.lastIncomingAt` 比：
+没过门槛 ⇒ 同一段对话，不拍；过了 ⇒ 他这是重新开口，先看一眼再回。
+
+> 教训：**这个仓库里凡是"多久算结束/多久算闲"的判断，先去 `grep quietGrantMs` 和社交状态**，
+> 不要另立一套 —— 两套阈值的系统，行为一定会打架。
+
+## 验证
+
+- `node --check src/bridge.js`、`node --check scripts/setup-dsh.mjs` 通过。
+- `node scripts/setup-dsh.mjs` → web + desktop 两个 profile 都写入了 `mcp-body`（`grep -A2 'id: mcp-body'` 各命中一次）。
+- `node scripts/test-tool-classification.mjs` / `test-agent-preset-patches.mjs` 仍全绿。
+- 她那边要**重新点一次「一键启动」**才吃到新逻辑（桥接没有热重载）。
+
+## 留给明天
+
+- 第二版的 `quietGrantMs` 判据还没在他真聊天里跑过一遍（要重启「一键启动」）。
+- `dsh plugin --profile <p> install` 仍退出码 1，MCP 条目靠脚本直接写 YAML 生效。
+
+# 2026-11-02 · 让她看得见屏幕、动得了鼠标（qq_screenshot / qq_mouse / qq_keyboard / qq_windows）
+
+## 起因
+
+他的原话：「现在让小鲸鱼可以操作我当前的电脑，给她这方面的权限，我从 qq 方面可以让她操作电脑」。
+
+先查了一遍：**能操作早就有了**。`qq_run_command` / `qq_read_file` / `qq_write_file` 在管理员私聊里一直通着
+（`state/bridge.log` 里那串 `[host] 跑命令（powershell）exit=0` 就是她真跑的），`socialV2.tools.localExec` 也是 true。
+真正的缺口是**她看不见**：那天她收到一个 Unity 的 exe，回了句「这边游戏接口只支持网页源码，这种 exe 我根本接不上」——
+不是不会玩，是没眼睛没手。
+
+## 为什么不接 DSH 自带的
+
+DSH 本体其实有一整套：`cua_driver_native__*`，70 个（`click` / `type_text` / `get_desktop_state` / `list_windows`…），
+desktop profile 的 `cordis.patch.yml` 里 `computer-use-cua-driver-native` 是 `disabled: false`，已经在跑。
+但在 QQ 会话里**一个都拿不到**——主人私聊的会话缓存里 `cua_driver_native__` 出现 0 次，`qq_run_command` 出现 11 次。
+要接过来得挂两个 plugin（`dsh-computer-use` + provider）、改守卫、改预设、还要把它纳入铁律 L7 的回归网，是个大工程。
+
+他当时说的是「先实现我的要求，不要思考太多……我现在想先快速出一版结果」。所以走自建：
+在 `qq-bridge-deploy` 里用 PowerShell 现成的 Win32 能力做四个工具，一个下午能通。
+
+> 顺带记一笔：`grep -a dsh-tool- app.asar | sort | uniq -c` 能直接看出 DSH 装了哪些内置工具包
+> （`dsh-tool-fs` 128、`dsh-tool-bash` 117、`dsh-tool-pwsh` 89…）。asar 得自己解：头 16 字节里 offset 12 是 header 长度。
+
+## 怎么做的
+
+`src/bridge.js` 里加了三样：`runPowerShellEncoded()`、`WIN_INPUT_CS`（内联 C#）、`wrapInputScript()`；
+host 路由段里加三个端点（都在那四道闸之内，所以天生只对管理员私聊开放）：
+
+- `/api/socialV2/host-screenshot` → 截 `SystemInformation.VirtualScreen`，返回 base64 + 宽高 + 鼠标位置；
+- `/api/socialV2/host-input` → `move / click / double_click / right_click / drag / scroll / key / type`；
+- `/api/socialV2/host-windows` → `EnumWindows` 列可见窗口（跳过最小化的）。
+
+`src/mcp-snowluma-safe.js` 里包成四个工具：`qq_screenshot` / `qq_mouse` / `qq_keyboard` / `qq_windows`，
+都挂在 `localExec` 这个开关下。`qq_screenshot` 返回**两个内容块**：一段文字元数据 + 一张 `{type:'image'}` ——
+图是真的回到她眼前，不是路径。
+
+守卫那边（`plugins/qq-agent-presets/qq-tool-restrict.mjs`）把四个名字加进 `HOST_EXEC_TOOLS`，
+因此和 `qq_run_command` 同档：管理员私聊放行，群聊和普通成员私聊一律拒。
+
+## 三个坑，都是真踩的
+
+### 1. `-Command` 会被引号吃掉，`.ps1` 会被 Defender 杀掉
+
+内联 C# 里全是 `@'…'@` 和双引号，`powershell -Command "…"` 转义一层套一层，跑不通。
+改成 `-EncodedCommand`（UTF-16LE + base64）就好了。
+写成 `.ps1` 文件再跑更糟——Defender 直接报 `ScriptContainedMaliciousContent`「此脚本包含恶意内容，已被防病毒扫描终止」。
+
+### 2. 字段名撞了会话 key
+
+`qq_keyboard` 一开始把组合键塞进 body 的 `key` 字段。可 `key` 是**会话 key**（`private:100000001`），
+被覆盖后桥接判「agent token 无效」，回 403 —— 看着像权限问题，其实是自己把身份证号填成了快捷键。
+改成 `keyCombo` 就好了。
+
+### 3. PowerShell 的成员名大小写不敏感
+
+C# 里 `const LEFTDOWN` 和 `void LeftDown()` 同时存在时，PS 眼里是同一个名字。
+`[QQBridgeInput]::LeftDown()` 被判成「拿那个常量当方法调」，报错却是「不包含名为 LeftDown 的方法」……
+查了半天。常量改 `ME_LEFTDOWN` / `KF_KEYUP`、方法改 `MouseLeftDown` 就没事了。
+
+> 还有一条小的：改了 C# 定义就得改 `WIN_INPUT_DLL` 的文件名（现在带 `-v3`）。
+> 老 dll 还在 `%TEMP%` 里，`Test-Path` 一通过就复用了旧版本，新方法当然找不到。
+
+## 打字为什么不用 SendKeys
+
+`SendKeys` 只认 ASCII，打中文得先塞剪贴板再 Ctrl+V —— 那会**覆盖主人自己的剪贴板**。
+改用 `SendInput` 直接投递 Unicode 扫描码（`dwFlags 0x0004` down / `0x0006` up），
+中文、emoji 都能打，也不碰剪贴板。`INPUT` 结构体在 x64 下必须正好 40 字节（`Size = 40` + `FieldOffset 8`），
+不然 `SendInput` 静默返回 0。
+
+## 实测
+
+- `node scripts/test-tool-classification.mjs` → 87 个 MCP 工具、权能矩阵 25 组 137 行，全绿。
+- 六个输入动作 `esc` / `ctrl+a` / `f5` / `move` / `scroll` / `click` 全 200。
+- 截图 1920×1080、152477 字节、770ms。
+- **群聊用完整 token 截屏 → 403 `kind:'ownerOnly'`「本机执行只对管理员私聊开放（当前会话是 group:100000002）」** —— 闸是好的。
+- 端到端：点记事本标题栏 → 打中文 `小鲸鱼 test 123！` → 截图 → `alt+f4`。
+  截图里能看到 Edge、任务栏、记事本内容 —— 说明真的作用在桌面上。
+
+## 还差
+
+- 没在**真实 QQ 私聊会话**里跑过一遍（只验了 HTTP 端点）。
+- `roles/小鲸鱼.md` 加了第十节、`docs/手艺清单.md` 加了一张表，但**她要重启桥接 + DSH NEXT 才吃到**。
+
+## 后来（同日，夜里）：把「看不见」这件事补完整
+
+白天那版只是"能截能点"。他看完说「重启了，继续做你建议的」，于是把剩下几条一起收了。
+
+### 1. 审计：动作落在谁身上
+
+原来日志只有 `[host] 输入 click (450,272)` —— 出事了对不了账：她到底点的是记事本还是别的窗口？
+
+现在 `wrapInputScript()` 会在动作**前后各取一次前台窗口**，打成 `__FGB__:` / `__FGA__:` 标记，
+Node 侧 `parseFgMarks()` 抽出来，日志变成：
+
+```
+[host] 输入 click (450,272) → 「记事本」
+[host] 输入 type 12 字符 → 「记事本」
+[host] 输入 key alt+f4 → 「记事本」⇒ 之后前台变成「Program Manager」
+```
+
+返回值里也带上 `foreground` / `foregroundAfter`，她能自己判断"字打进去没有"。
+截图同理，会记 `· 前台「Probably Stolen」`。
+
+### 2. 只截一个窗口
+
+整屏 PNG 有 30 万字节，喂给模型不便宜，而且窗口套窗口时看不清字。
+给 `qq_screenshot` 加了可选 `hwnd`：从 `qq_windows` 拿一个 hwnd 传进来，就只截那个窗口。
+
+实现上只有取区域那几句不同（`GetWindowRect` 换成 `SystemInformation.VirtualScreen`），
+其余共用。返回值多两个字段：
+
+- `origin: {x, y}` —— 这张图的 `(0,0)` 对应屏幕的哪个点。**不加这个偏移，坐标喂给 qq_mouse 会点偏**；
+- `hwnd` —— 这次截的是哪个窗口（没传就是 null）。
+
+顺手把整屏那条也统一成同一个 `origin` 口径，免得两套坐标系统。
+
+### 3. DSH 自带的 computer-use 进回归网
+
+查 asar 发现有 `cua_driver_native__*` 一整族 70 个（截屏/点击/打字/开 App/剪贴板/accessibility tree），
+desktop profile 里 `computer-use-cua-driver-native` 是 `disabled: false`，一直在跑。
+但 QQ 会话里一个都拿不到（会话缓存里 `cua_driver_native__` 出现 0 次）。
+
+之前它只是**碰巧**落进兜底拒绝（"不在白名单内"）。碰巧安全不是安全 ——
+哪天有人给它加前缀、或把它挪进 SAFE_EXACT，群里就能截他的屏、替他点「确定」。
+所以加了 `CUA_TOOL_PREFIX` + `isCuaTool()`，在 `verdictFor` 里**按前缀**先判一次；
+权能矩阵也多了一组。为什么按前缀不列名单：工具是运行时从 SDK 问出来的，
+上游增减一个名字就跟着变，枚举必然漂移（而且 70 行没人看）。
+
+`test-tool-classification.mjs` 加了「④b」一节，用**合成名字**钉住：
+五个真实名 + `cua_driver_native__brand_new_tool_2099` + 空尾巴 `cua_driver_native__`，
+全都必须 owner 放行、群聊/成员私聊必拒。这样明天上游加个 `format_disk` 也自动被挡。
+
+### 4. 顺手修掉两个一直红着的测试
+
+跑 `npm run test:audit` 只有 **51/59**。查下来两组原因：
+
+- **`scripts/audit-bridge-harness.mjs` 的 `process` 桩不全**（8 个脚本整体崩在
+  `process.on is not a function`）。`bridge.js:616` 有个 `process.on('exit', ...)` 在模块顶层，
+  harness 的截断点（`process.on('SIGINT'`）在它后面，所以每次都会求值。
+  补了 `on` / `cwd` / `execPath`。补完又露出第二个：`os is not defined` ——
+  harness 把 import 行全剥了，得往 context 里补 `os`（新加的 `WIN_INPUT_DLL` 用到了它）。
+- **游戏目录改名了**：主人把 `小鲸鱼的游戏/` 改叫 `game/`，
+  于是 `gamesRoot()` 找不到、`test-games-layer` 红。给 candidates 加了 `../game`；
+  顺手把 `test-games-runtime.mjs` 里两处写死的 `小鲸鱼的游戏` 路径改成 `gamesRoot()`，
+  否则那个断言会 `if (!exists) return` 静默跳过 —— 等于没测。
+
+现在 `npm run test:audit` 是 **59/59**。
+
+### 5. 一个角色卡预算的坑（反复踩）
+
+`role.maxInjectChars = 9000`，`test-index-budget.mjs` 卡「正文 + 索引 ≤ 9000」。
+第十节写完是 9548，超了。压到 9219、9124、9063、9051……每删几十字就重跑一次，
+最后落在 8990 左右过关。**以后往角色卡加东西，写完立刻跑一次这个测试**，
+别等最后才发现要删自己刚写的话。
+
+## 验证
+
+- `npm run test:audit` → **59/59 scripts passed**（修之前 51/59）。
+- `node scripts/test-tool-classification.mjs` → 87 个工具 / 权能矩阵 **26 组 138 行**。
+- `node scripts/test-index-budget.mjs` → 8/8。
+- 实测审计：`[host] 输入 move (400,300) → 「Probably Stolen」`、`[host] 截屏 1920x1080 309178 字节，2221ms · 前台「Probably Stolen」`。
+- 实测单窗截图：传 `hwnd=722684` → 1936×1048、174156 字节、`origin:{-8,-8}`、
+  `foreground:「小鲸鱼勿主动打开文件 — DeepSeek Harness」`。
+
+## 还没做
+
+- 建议里的第 5 条（长期改用 cua 的 `element_token` / background 投递）：那是换一套底层，
+  要挂两个 plugin + 改守卫 + 改预设，不是今晚的量。
+- 没在真实 QQ 私聊里让她跑一遍完整流程（只验了 HTTP 端点 + 记事本端到端）。
+
+# 2026-11-03 · 她能"一边看屏幕一边聊天"了（spawnSync → 异步）
+
+## 起因
+
+主人问：「小鲸鱼好像不能一边和我一起看屏幕一边和我聊天吗」
+
+查下来是真的，而且原因很具体：截图/鼠标/键盘/跑命令全走 `runPowerShellEncoded`，
+那个函数用的是 **`spawnSync`** —— 同步阻塞。
+
+桥接是**单进程单线程**的 Node。spawnSync 一调，整个事件循环停住：
+收不到 QQ 消息、别的工具调用全排队、心跳被推迟。实测截一张屏 1.0~2.7 秒
+（日志里 14:30 那次 2770ms、21:09 那次 2262ms），这期间她就是"不理人"的。
+
+她自己其实一直在用这套：日志里 14:30 到 21:09 有十几次 `[host] 截屏 ... 前台「Probably Stolen」`，
+每一次都是一两秒的假死。
+
+## 怎么改的
+
+把 `spawnSync` 换成异步 `spawn`，包一层 Promise，**返回形状刻意保持不变**
+（`{status, stdout, stderr, error, signal}`），这样十几个调用点只加 `await`、
+判错逻辑一行都不用改。
+
+几个细节：
+
+- **超时自己实现**：`spawn` 没有 `timeout` 选项，用 `setTimeout` + `kill('SIGKILL')` 模拟，
+  超时后把 `error.code` 设成 `'ETIMEDOUT'` —— 和 spawnSync 的语义对齐，
+  这样 `const timedOut = r.error?.code === 'ETIMEDOUT'` 那句老代码照样生效。
+- **`timer.unref()`**：别让这个超时定时器把进程钉住不退出。
+- **maxBuffer 64MB 自己实现**：stdout/stderr 各自累积到 64MB 就不再收（进程继续跑），
+  和原来 spawnSync 的 maxBuffer 行为一致。
+
+改了三处：`runPowerShellEncoded`（截屏/鼠标/键盘/列窗口全走它）、`host-run`（跑命令）、
+`runEmulatorManager` 留着没动（它在授权到期关模拟器那条路径上，调用点在非 async 上下文里，
+改动面比收益大，先记下来）。
+
+## 实测
+
+改前不知道卡多久，改后直接量"能不能同时响应"：
+
+```
+截图总耗时 1412 ms  status 200
+截图期间的 5 个轻量请求耗时： 380ms 310ms 334ms 314ms 305ms
+✅ 通过：截图跑 1412ms，期间轻量请求最慢 380ms —— 说明事件循环没被卡住
+```
+
+极端情况（8 秒的长命令）：
+
+```
+长命令总耗时 8257 ms  status 200
+期间 6 次轻量请求： 320ms 313ms 307ms 336ms 311ms 302ms
+✅ 通过：8 秒命令跑着的时候，别的请求最慢 336ms —— 桥接一直在响应
+```
+
+`npm run test:audit` → 59/59；`test-tool-classification` 仍绿。
+
+## 但"一起看"还有另一半没解决
+
+异步化解决的是**她不会因为看图而失联**。但"一边看一边聊"还有个更根本的问题：
+一张截图 ≈ 普通图片的 token 量（1920×1080 的 PNG 转 base64 再进上下文），
+连着截十张就开始烧钱、也会挤爆上下文。
+
+所以正道不是"拼命截"，而是：
+
+- 要看"现在是什么" → `qq_screenshot`（一帧）；
+- 要看"刚才发生了什么" → `qq_watch_screen`（一段时间的变化，拼成一张宫格图，约 233 token）；
+- 聊着天顺手瞄一眼 → 用 `qq_screenshot` + `hwnd` 只截那个窗口（图小很多）。
+
+这三条现在都通了（`qq_watch_screen` 本来就用异步 spawn，不受这次改动影响）。
+
+# 2026-11-03 · 把工具说明从角色卡搬回预设（分层纠正）
+
+## 起因
+
+主人原话：「现在角色卡和预设又写混乱了，角色卡只是角色本身的个性什么的，预设里面才是具体功能实现」
+
+查了 `src/preset-prompt.js` 开头的边界说明，写得很清楚：
+
+```
+仿真提示词 = 预设（persona.prefix），规定 AI 怎么调工具、怎么参与群聊（行为与协议）
+人格提示词 = roles/<名称>.md，规定 AI 是谁、什么性格（人设与语气）
+```
+
+是我违反了它。前几轮为了赶功能，把 `qq_screenshot` / `qq_mouse` / `compress` 这些
+**工具用法**直接写进了角色卡第九、十节 —— 那是预设该管的事。后果很实际：
+
+1. 角色卡被功能说明占满（正文 7993/9500，记忆索引没地方放，两天就会顶到上限）；
+2. 角色卡是**每条消息注入**的，工具说明放这儿等于每轮都重复付一遍 token；
+3. 预设那份才是"装配时定死、改完要重启 DSH"的，工具协议本来就该长在那里。
+
+## 怎么搬的
+
+**预设**（`dsh/agent-presets/qq-chat-v2/agent.cordis.yml`，工具协议从 21 条扩到 24 条）新增：
+
+- **22. 动手干活：本机的那个手** —— 手艺清单、四个本机工具只在管理员私聊、
+  `qq_send_file` 给链接就行、打包的 `Compress-Archive` 坑、改动性命令先问主人。
+- **23. 看屏幕 / 动鼠标** —— 四个工具的参数、坐标系（含截单窗要加 `origin`）、
+  「看清楚 → 动一下 → 再截一张确认」、别连着猛截（用 `qq_watch_screen` 代替）。
+- **24. 上下文压缩** —— `compress` / `decompress` / `search_context` 什么时候用，
+  以及「压缩前先把要紧事落进记忆」。
+
+**角色卡**把两节重写成纯人设：
+
+- 九、干活的时候 —— 认真做、做不成照实说、别人求她动电脑就礼貌拒绝、干完别邀功、拿不准先问。
+- 十、累了就压缩 —— 聊太久会收成摘要，但**收进去的东西容易丢**，要紧事先记下来。
+
+## 校验
+
+自己加了一条检查，确认角色卡真的干净了（`qq_*` / `compress` / `hwnd` / `powershell` 这些
+一个都不许出现）：
+
+```
+✅ 角色卡已无工具引用
+```
+
+- `node scripts/build-agent-preset-patches.mjs` → 重新生成 patch（预设有新增，必须重生成）
+- `test-index-budget` 8/8、`test-preset-prompt` 12/12、`test-role-card` 9/9
+- `npm run test:audit` → **59/59**
+
+## 收益
+
+角色卡正文 **7993 → 6957**；算上索引 1176，合计 8133 / 9500，**余量从 331 字涨到 1367 字**。
+按记忆日均增长约 175 字算，从"两天顶到"变成"一周左右"。
+
+更要紧的是它回到了该在的地方：人设每轮注入、只该是她自己的事；工具协议改完重启 DSH 生效，
+不占每轮上下文。
+
+# 2026-11-03 · 记忆索引窗口 3 天 → 2 天
+
+主人原话：「记忆索引还原成两天吧」。改 `INDEX_RECENT_DAYS = 3 → 2`。
+
+## 不只是改一个数字
+
+**1. 注释里的「3 天」全同步了**（5 处）—— 数字和注释对不上是这类常量最典型的坑：
+下一个人读到"3 天"会去改别的地方，或者以为代码写错。
+
+**2. `src/bridge.js` 里还有一处并列的硬编码 3。** 这条最要紧：
+
+`pickRecallRows`（每轮撞老记忆）的默认 `recentDays` 也是 3，用途是"索引里已经有的就别再提"。
+它和索引窗口**必须同源** —— 两边不一致时会出现一个静默 bug：
+
+> 索引只放 2 天了，但 recall 还认为"最近 3 天的都在索引里"，
+> ⇒ 第 3 天那批记忆被当成"索引已覆盖"而**永不撞出来**，也从索引里掉出去了。
+> 结果那批记忆既不在索引、也不会被想起 —— 等于消失。
+
+所以改成从 memory-index 导入 `INDEX_RECENT_DAYS`，一处定义、两处使用：
+`import { INDEX_RECENT_DAYS } from '../plugins/qq-memory-rollover/memory-index.mjs'`。
+
+## 连带修了 4 个测试
+
+改常量必然撞到把旧值写死的测试。这次撞了三个文件：
+
+- `test-memory-index.mjs`：常量断言写死 3 → 改成 2（并留痕"2026-11-03 主人从 3 收到 2"）；
+  `archivedCount: 297` 是 `300 - 3` 算出来的 → 改成 `300 - INDEX_RECENT_DAYS`（不再写死）；
+  「replaces 取代」那组测试用 `day(18)` + `day(19)`，窗口收成 2 天后 18 号掉出窗外 →
+  日期挪到 `day(19)` + `day(20)`。
+- `test-memory-recall.mjs`：它把 `pickRecallRows` 的源码摘出来用 `new Function` 求值，
+  而新代码引用了模块级的 `INDEX_RECENT_DAYS` ⇒ `ReferenceError`。
+  修法是把常量拼进**函数体**（不是参数位 —— `new Function` 的参数位只能写形参名，
+  塞 `const` 会 `SyntaxError: Unexpected token 'const'`，这个坑当场踩了一次）。
+
+## 结果
+
+- `npm run test:audit` → **59/59**（改之前 57/59）
+- `test-memory-index` 35/35、`test-memory-recall` 11/11
+- 重新生成索引：`--reindex` → 正文 6918 + 索引 806 = **7724 / 9500**，保留 9 条 / 1 天，归档 92 条
+
+余量从 331 涨到 **1776 字**（这轮角色卡瘦身 + 索引收窄叠加的效果）。
+
+## 一个顺带发现
+
+改完才发现，`INDEX_RECENT_DAYS` 现在被两个"看起来不相干"的模块共用（记忆索引 + 轮次回忆）。
+这种"一个窗口值决定两件事"的地方，以后改之前先 grep 一遍常量名 —— 只改一处就是静默 bug。

@@ -143,6 +143,65 @@ for (const n of [
     `${n} 绝不能对普通成员私聊放行 —— 同上`);
 }
 
+// ── ④b DSH 自带 computer-use：只给管理员私聊（2026-11-02 补）─────────────
+// 这套 `cua_driver_native__*`（实测 70 个）是 **DSH 本体**注册的全局工具，
+// 不是三个 MCP server 里的，所以扫 `all` 扫不到它 —— 它长期只是"碰巧"落进
+// 兜底拒绝（「不在 QQ 桥接白名单内」）。碰巧安全不是安全：
+// 哪天有人给它加前缀白名单、或把它塞进 SAFE_EXACT，群里就能截主人的屏、
+// 替他点"确定"。这里用**合成名字**钉死前缀判定，不依赖上游工具是否装上。
+for (const n of [
+  'cua_driver_native__click',
+  'cua_driver_native__type_text',
+  'cua_driver_native__get_desktop_state',
+  'cua_driver_native__launch_app',
+  'cua_driver_native__clipboard_read',
+]) {
+  assert.equal(verdictFor(n, OWNER, {}), undefined,
+    `${n} 应当对管理员私聊放行（主人 2026-11-02 要的桌面操作面）`);
+  assert.notEqual(verdictFor(n, GROUP, {}), undefined,
+    `${n} 绝不能对群聊放行 —— 它能截屏、点鼠标、敲键盘、开关程序`);
+  assert.notEqual(verdictFor(n, MEMBER, {}), undefined,
+    `${n} 绝不能对普通成员私聊放行 —— 同上`);
+}
+// 前缀判定必须**走前缀**，不是列名单：上游增删一个工具，名字就跟着变。
+// 一个从没见过的 cua 名字也必须被拒（否则明天上游加一个 `cua_driver_native__format_disk`
+// 就没人挡了）。
+for (const n of ['cua_driver_native__brand_new_tool_2099', 'cua_driver_native__']) {
+  assert.notEqual(verdictFor(n, GROUP, {}), undefined,
+    `${n} 必须按前缀被拒（computer-use 工具是运行时生成的，不能靠枚举名单）`);
+}
+
+// ── ④c 上下文管理工具必须三类会话全开（2026-11-03 补）──────────────────
+// 起因：主人贴了一张报错 —— 她在 QQ 私聊里想压缩自己的上下文，调 `compress`
+// 拿到「工具 "compress" 不在 QQ 桥接白名单内，已拒绝」。
+// 这类工具是 billion-context 全局注册的、不带 `mcp__` 前缀，所以既走不到
+// SAFE_PREFIXES，也不在 SAFE_EXACT ⇒ 长期落在兜底拒绝里。
+//
+// 后果不是"少个功能"：长对话没有压缩手段，会话只能一路涨到爆，
+// 然后她要么忘掉前面聊过什么、要么整段丢。
+//
+// 为什么这三类都该开：参数只有会话内 ref（m00150）和自己写的摘要正文，
+// 不碰文件、不起进程、不联网、不对外发声 —— 和 `todo_write` 同一档。
+for (const n of [
+  'compress',
+  'decompress',
+  'search_context',
+  'acp_status',
+  'acp_cache',
+  'acp_read_original_image',
+]) {
+  for (const [label, kind] of [['管理员私聊', OWNER], ['群聊', GROUP], ['普通成员私聊', MEMBER]]) {
+    assert.equal(verdictFor(n, kind, {}), undefined,
+      `${n} 应当对${label}放行 —— 它是她自己的上下文管理工具，拒掉只会让会话涨到爆`);
+  }
+}
+// 反面：billion-context 里**没列进 CONTEXT_TOOLS** 的那几个仍然必须被拒。
+// 尤其 absorb（会改压缩策略）和 acp_retrieve —— 前缀放行等于"以后插件新增什么都自动开"。
+for (const n of ['absorb', 'acp_retrieve', 'acp_crush', 'acp_proxy']) {
+  assert.notEqual(verdictFor(n, GROUP, {}), undefined,
+    `${n} 不在 CONTEXT_TOOLS 里，必须继续被拒（不能因为放行了 compress 就整包放开）`);
+}
+
 // ── ⑤ 权能矩阵必须是**全量**的（2026-10-29 重整）────────────────────────
 // 矩阵是控制台那页「哪类人 × 哪个工具」的表。它以前只登记了 77 个工具里的 39 个，
 // 剩下 46 个照样被前缀白名单放行，但表上看不见 —— 看表的人会以为"没列出来的就是没有"。

@@ -58,32 +58,27 @@
 基础概率 0.55、检查间隔 25~50 分钟、冷场门槛仍是 20 分钟。每次判定都会在日志里打
 `主动机会判定 … p=…（时间系数 …）`，可以从 `state/bridge.log` 复盘她为什么没开口。
 
-### 3. 玩手机 / 刷 B站 要当场申请（**硬闸门**）
+### 3. 玩手机 / 刷 B站 已整体下线（2026-11-06）
 
-手机工具（截图/点按/滑动/消消乐）和 `bili_run` 现在都被挡住，**默认调用会被直接拒绝**。
-想用必须走这条路：
+手机控制（adb：截图/点按/滑动/消消乐）与 B站 全套工具**已经不挂了**，不是"要申请"，
+是**整包不在白名单**——守卫直接兜底拒绝：
 
 ```
-qq_request_permission(key, token, scope="phone"|"bili", why="想玩会儿消消乐")
-  → 以她的口吻发一条 QQ 消息问管理员
-  → 管理员回「同意」（可带时长：「同意 1 小时」）
-  → 写 state/permits.json 一条带到期时间的授权
-  → 到期自动失效，再玩要重新问
+工具 "mcp__phone__phone_screen" 不在 QQ 桥接白名单内，已拒绝
+（仅允许 QQ MCP 工具与无害模型侧工具）
 ```
 
-规矩：
+现状：
 
-- **只认管理员私聊**。群聊、普通成员私聊一律拒绝 —— 授权文件里就算写了，守卫也不认
-  （这是 `scripts/test-permit-gate.mjs` 钉住的第一条）。
-- 拒绝优先：`bili_config` / `bili_setup` / `bili_login_*` 仍然永远拒绝，给再多授权也不放。
-- 只读的手机工具（`phone_status` / `phone_flows`）和只读 B站工具（`bili_search` / `bili_subtitle` /
-  `bili_comments`）**不需要申请**，她查资料不该也要打报告。
-- 申请超时 10 分钟；同一会话同时只挂一个申请，新的顶掉旧的。
-- 判定点在守卫（`plugins/qq-agent-presets/qq-tool-restrict.mjs` 的 `verdictFor`），不在桥接 ——
-  因为这些是 DSH 直接挂的 MCP server，根本不经过桥接。桥接只负责"发问"和"写授权"。
-- 管理员可以随时收回：`POST /api/socialV2/revoke-permit`（`{key, scope}`），或直接跟她说。
-
-怎么看当前授权：`GET /api/socialV2/permits`。
+- **手机控制整套下线**：`src/mcp-games.js` 文件还在、但 `setup-dsh.mjs` 的 `MANAGED_MCP_IDS`
+  已摘掉 `mcp-games`；手机 adb 工具也从 `SAFE_PREFIXES` 移出（只剩 `phone_status` 只读放行，
+  让管理员能看她手机在不在线）。
+- **B站 只读也下线**：`bili_video` 已从 `src/mcp-web-search-safe.js` 摘掉。要看视频画面改用
+  `qq_watch_video`（真看画面，走 QQ 侧工具，不在 B站 那套里）。
+- 那段「当场申请」的闸门（`qq_request_permission` / `state/permits.json` / `/api/socialV2/permits` /
+  `/api/socialV2/revoke-permit` / `scripts/test-permit-gate.mjs`）**已随之上线删除**。
+- 想恢复：`src/mcp-games.js` 加回 `setup-dsh.mjs` 的 `MANAGED_MCP_IDS` + servers 表那行取消注释，
+  `bili_video` 加回 `mcp-web-search-safe.js` 的注册块，再决定要不要重建申请闸门。
 
 ### 4. 约好的事（`qq_promise`）
 
@@ -111,7 +106,7 @@ node tools/extra-console/server.mjs      # 或双击 专项控制台.bat
 **一键启动已接上**：`launcher/launch-all.ps1` 收尾时先探 `/healthz`，没起就用 node 拉起来，
 然后在「当前状态」下面单列一块打印地址。网址可用 `launcher/paths.json` 的 `extraConsole` 覆盖。
 
-**左侧九页，视觉与 3100 主控制台一致**（2026-10-20 主人要求："像 3100 一样左边是多页的选项，背景和字体模仿一下"）：
+**左侧八页，视觉与 3100 主控制台一致**（2026-10-20 主人要求："像 3100 一样左边是多页的选项，背景和字体模仿一下"）：
 
 | 页 | 内容 |
 | --- | --- |
@@ -120,13 +115,13 @@ node tools/extra-console/server.mjs      # 或双击 专项控制台.bat
 | ③ 媒体上限 | 单条消息字节 / 单张像素 / 张数 + **表情 CDN 兜底开关**（默认 8MB·64MP·5 张，硬天花板 32MB·256MP·20） |
 | ④ 自由时间 | 静默阈值 + 空间写最小间隔（两个数字前后端钳制一致，标出默认值） |
 | ⑤ 等待与超时 | 单次等待上限 / 默认等待 / 沉睡前静默（`socialV2.wait`；上限 10 分钟，因回合僵死阈值按它定） |
-| ⑥ 工具开关 | 50 个开关，按 8 组折叠，标出「一个开关管 N 个工具」 |
-| ⑦ 申请闸门 | 看授权、直接批准、收回、申请记录 |
-| ⑧ 约好的事 | 列表 + 替她排 + 删 |
-| ⑨ 现场调试 | 选会话、立刻叫醒、（令牌兜底卡片） |
+| ⑥ 工具开关 | 48 个开关，按 7 组折叠，标出「一个开关管 N 个工具」 |
+| ⑦ 约好的事 | 列表 + 替她排 + 删 |
+| ⑧ 现场调试 | 选会话、立刻叫醒、（令牌兜底卡片） |
 
-> 页数是**照着 `tools/extra-console/index.html` 里的 `data-nav` 数出来的**（9 个）；
+> 页数是**照着 `tools/extra-console/index.html` 里的 `data-nav` 数出来的**（8 个）；
 > `scripts/test-extra-console.mjs` 会核对「页签与按钮一一对应」，改页面记得同步改这张表。
+> （原「⑦ 申请闸门」页已随申请闸门 2026-11-06 下线删除。）
 
 视觉是**照抄 `public/console.html` 的设计令牌**，不是自己配的色：浅色底 `#f7f8fb`、蓝紫强调
 `#4d6bfe`、卡片 16px 圆角、同一套阴影与字体栈（`-apple-system, "Segoe UI", "Microsoft YaHei"`）。
@@ -155,8 +150,8 @@ node tools/extra-console/server.mjs      # 或双击 专项控制台.bat
 | **只调 5 个"原版就有"的端点** | `/api/socialV2/config`、`/states`、`/state`、`/wake`、`/api/test-send`（用改动前的备份逐个核对过） |
 | **不碰 `public/console.html`** | 那是被 git 跟踪的插件文件，更新整体替换 |
 
-数据落点：授权 → `state/permits.json`（守卫读同一个文件 ⇒ 这里批准 = 她在 QQ 里申请你回同意）；
-本控制台的约定 → `state/extra-promises.json`。两者都在 `.gitignore` 里，**永远不会**被更新碰到。
+数据落点：本控制台的约定 → `state/extra-promises.json`，在 `.gitignore` 里，**永远不会**被更新碰到。
+（原「授权 → `state/permits.json`」已随申请闸门 2026-11-06 下线删除。）
 
 ### 令牌不用手填
 
@@ -237,7 +232,7 @@ node tools/extra-console/server.mjs      # 或双击 专项控制台.bat
 
 | 约束 | 值 | 理由 |
 | --- | --- | --- |
-| 逐条保留 | **最近 3 天**（含今天，`INDEX_RECENT_DAYS`） | 主人 2026-10-23 定的：「记忆就是要精简，也不是重点常驻，是随时间移除的」 |
+| 逐条保留 | **最近 3 天**（含今天，`INDEX_RECENT_DAYS`） | 主人 2026-10-23 定「记忆要精简、随时间移除」；2026-11-03 收到 2 天，2026-11-07 又改回 3 天（2 天只留 7 条、预算用掉 28%，召回太不完整） |
 | 约定例外 | **最多 4 条**（`INDEX_PIN_MAX_ITEMS`） | 未到期的约定 / 对方还欠着的事，行首标 `〔约定〕`，不受上面 3 天限制 |
 | 约定的宽限 | **14 天**（`INDEX_PIN_SOFT_DAYS`） | 只说"答应/说好"没给时间时按 14 天算；5 天太短，会漏掉"主人答应给的群号还没给" |
 | 硬上限 | **30 条**（`INDEX_MAX_ITEMS`） | 3 天里聊得特别多时再砍 |
@@ -441,19 +436,17 @@ node tools/extra-console/server.mjs      # 或双击 专项控制台.bat
 
 | 主体 | 通道 | 权限 |
 | --- | --- | --- |
-| **管理员（ownerQQ，控制台或 DSH 设置页可配置）** | QQ 群/私聊 | 正常聊天 + **管理命令由桥接硬执行**（不经过模型）：`/role <角色名>` 切人格、`/role off` 清除、`/silent` 静默、`/active` 恢复、`/reset`、`/status`；消息自动带【管理员】标记；**唯一能批准「玩手机/刷B站」的人** |
-| **群友** | QQ 群 | **仅正常聊天**。控制词、`/` 管理命令被桥接拦截；静默模式下消息不投递给 agent；**永远申请不到手机/B站权限** |
-| **管理员** | **桥接控制台**（`http://127.0.0.1:3100`） | **最高权限**：控制模式（控制台顶部模式按钮）、控制角色/静默（写 `state/current-role.json`）、完整 DSH 工具（含本地操作）、查看 QQ 活动日志（`state/qq-activity.log`）、直接打开「QQ 聊天」工作区会话对话、查看/收回手机与 B站授权 |
+| **管理员（ownerQQ，控制台或 DSH 设置页可配置）** | QQ 群/私聊 | 正常聊天 + **管理命令由桥接硬执行**（不经过模型）：`/role <角色名>` 切人格、`/role off` 清除、`/silent` 静默、`/active` 恢复、`/reset`、`/status`；消息自动带【管理员】标记 |
+| **群友** | QQ 群 | **仅正常聊天**。控制词、`/` 管理命令被桥接拦截；静默模式下消息不投递给 agent |
+| **管理员** | **桥接控制台**（`http://127.0.0.1:3100`） | **最高权限**：控制模式（控制台顶部模式按钮）、控制角色/静默（写 `state/current-role.json`）、完整 DSH 工具（含本地操作）、查看 QQ 活动日志（`state/qq-activity.log`）、直接打开「QQ 聊天」工作区会话对话 |
 | **QQ 会话 agent（chat 模式）** | — | 最低权限面（见下） |
 
 ## QQ 会话 agent 的硬边界
 
 1. **无本地工具**：qq-chat / qq-chat-v2 预设不挂载 bash/pwsh、文件读写、子代理、工作流——群友无论如何诱导，agent 物理上无法操作本机。
 2. **QQ 动作安全子集**：只允许 `mcp__snowluma__*`、`mcp__snowluma-host__*`、`mcp__web-search-safe__*` 三个命名空间下的工具，以及 `ask_user_question` / `todo_write`；其他工具（含 `dev_*` 开发/管理工具）在执行期会被 `qq-tool-restrict.mjs` 拒绝。QQ 动作无禁言、踢人、文件上传下载等管理操作。
-   - ⚠️ **手机 `mcp__phone__*` 与 `bili_run` 特别档**：不在通用白名单里，走「申请闸门」——
-     只有管理员私聊 + `state/permits.json` 里有未过期授权才放行，否则 `verdictFor` 直接拒绝。
-     守卫放行时**显式 return**（不再往下走到通用白名单），否则「没有授权」那条分支永远走不到。
-     详见上面「主动找管理员 · 3. 玩手机 / 刷 B站 要当场申请」。
+   - ⚠️ **手机 `mcp__phone__*` 与 B站 `bili_*`**：2026-11-06 已**整包下线**，不在通用白名单里，
+     守卫兜底拒绝（只有 `phone_status` 只读放行给管理员私聊）。详见上面「3. 玩手机 / 刷 B站 已整体下线」。
 3. **联网读 + 网页上的"手"**：`qq-chat` / `qq-chat-v2` 预设已关闭 DSH 内置 `tool-web` 的 `search` / `fetch`，联网统一走 `src/mcp-web-search-safe.js`。不暴露本地文件、命令执行。
    - ✅ `mcp__web-search-safe__web_fetch` 已做 SSRF 加固：仅 http/https、禁止 localhost/私有 IP/链路本地/CGNAT/带凭据 URL、DNS 解析结果全量校验、每跳重定向重新校验、响应体限量读取。
    - ⭐ **网页上的「手」（2026-10-22 主人要求）**：`web_click` / `web_type` / `web_key` / `web_scroll` / `web_select` / `web_whats_there`。
@@ -559,7 +552,7 @@ node scripts/mapgen.mjs      # 或 npm run map
 - 拼装顺序：`仿真提示词 → 人格提示词 → 本轮消息`。
 - **人格卡只写人设，不写工具用法**：两代工具协议不同（一代空格分条 / `[SILENT]`，二代一切皆工具），写进人格卡必然有一代是错的；而且桥接已经每条消息注入当前模式的分条与潜水方式。写作规范见 `roles/README.md`。
 - 同一个角色确实需要分代时，用**标题级模式标记**：`## 分条方式 〔一代〕` / `## 表情包 〔二代〕`；无标记的小节两代都注入，标记在注入前会被去掉。桥接按当前模式筛完小节**再**截断。
-- **注入上限**：默认每条消息 6000 字符（`config.json` 的 `role.maxInjectChars`，1000~20000，控制台可改）。这是成本护栏——人格卡会随每条消息发送。
+- **注入上限**：默认每条消息 9000 字符（`config.json` 的 `role.maxInjectChars`，1000~20000，控制台可改）。这是成本护栏——人格卡会随每条消息发送。
 - 仿真提示词保存前会做硬性校验：保留 `你没有本地工具` / `群友没有管理权限` / `API 令牌` / `角色由桥接注入` / `不会自动发送到 QQ` 这些安全不变量，且正文 ≥ 500 字符；缺失即拒绝保存（否则会同时削弱权限边界并让 `npm run test:audit` 变红）。写入前自动备份到 `state/preset-backups/`，可一键还原；还原时同样校验。
 - 一代遗留写法（空格分句、`[SILENT]`、自动转发）若出现在**未标记**的小节里，二代下会被兜底整行过滤；控制台会提示把它们移到 `〔一代〕` 小节。
 - 两层提示词都**只能由控制台（管理员令牌）修改**：带 `x-agent-token` 的请求对这些端点一律 403，QQ 群里的 AI 无法改写自己的提示词。
