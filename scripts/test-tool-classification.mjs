@@ -37,13 +37,19 @@ const OWNER = 'owner-private';
 const GROUP = 'group';
 const MEMBER = 'member-private';
 
-// 三个 MCP server 的文件 → DSH 里的工具名前缀。
+// 四个 MCP server 的文件 → DSH 里的工具名前缀。
 // 前缀必须写对：守卫看到的是**全名**（`mcp__snowluma__qq_say`），
 // 审计脚本第一版忘了加前缀，于是所有 qq_* 都撞上兜底拒绝，得出一张全红的假表。
+//
+// ⚠️ 2026-11-10 补上 mcp-body：之前这里只列了三个，于是本脚本报「79 个 MCP 工具」
+//    （64+14+1），body 的 3 个完全没扫到。矩阵里虽然人工把 body 塞进了 body-eye 组，
+//    但**没有任何测试钉它** —— 以后给 mcp-body.js 加工具，矩阵会静默漏掉它，
+//    而这张表正是「没出现在表里 = 不存在」的口径来源。现在四家都在，报「82 个」。
 const SERVERS = [
   ['src/mcp-snowluma-safe.js', 'mcp__snowluma__'],
   ['src/mcp-web-search-safe.js', 'mcp__web-search-safe__'],
-  ['src/mcp-host-server.js', 'mcp__snowluma-host__']
+  ['src/mcp-host-server.js', 'mcp__snowluma-host__'],
+  ['src/mcp-body.js', 'mcp__body__']
 ];
 
 /**
@@ -145,7 +151,7 @@ for (const n of [
 
 // ── ④b DSH 自带 computer-use：只给管理员私聊（2026-11-02 补）─────────────
 // 这套 `cua_driver_native__*`（实测 70 个）是 **DSH 本体**注册的全局工具，
-// 不是三个 MCP server 里的，所以扫 `all` 扫不到它 —— 它长期只是"碰巧"落进
+// 不是四个 MCP server 里的，所以扫 `all` 扫不到它 —— 它长期只是"碰巧"落进
 // 兜底拒绝（「不在 QQ 桥接白名单内」）。碰巧安全不是安全：
 // 哪天有人给它加前缀白名单、或把它塞进 SAFE_EXACT，群里就能截主人的屏、
 // 替他点"确定"。这里用**合成名字**钉死前缀判定，不依赖上游工具是否装上。
@@ -205,7 +211,7 @@ for (const n of ['absorb', 'acp_retrieve', 'acp_crush', 'acp_proxy']) {
 // ── ⑤ 权能矩阵必须是**全量**的（2026-10-29 重整）────────────────────────
 // 矩阵是控制台那页「哪类人 × 哪个工具」的表。它以前只登记了 77 个工具里的 39 个，
 // 剩下 46 个照样被前缀白名单放行，但表上看不见 —— 看表的人会以为"没列出来的就是没有"。
-// 这条断言把它钉死：三个 MCP server 注册的每个工具都必须在某个组里露面。
+// 这条断言把它钉死：四个 MCP server 注册的每个工具都必须在某个组里露面。
 const matrix = privilegeMatrix();
 const rowsInMatrix = new Map();
 for (const g of matrix.groups) {

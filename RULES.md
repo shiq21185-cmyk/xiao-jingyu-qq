@@ -316,20 +316,39 @@ node tools/extra-console/server.mjs      # 或双击 专项控制台.bat
    插件逻辑本身是正确的（会跟随现有行尾），但**手工修文件时要留意**。
    这次的 231 处 CRLF 就是这么丢的，事后需专门修回。
 
-### 工具开关（2026-10-20 新增，在 3101）
+### 工具开关（2026-10-20 新增；主控制台 2026-11-10 补齐成 48 个）
 
-主控制台 `public/console.html` 的工具清单是**写死在 HTML 里的一串 `<label>`**
-（第 2064-2069 行），不是动态读的。两个后果：
+两个控制台各有一份工具开关，**分工不同、都在用**：
 
-1. **后加的工具它看不到** —— 实测漏了 `qq_say` /
-   `qq_promise` / `qq_promise_done` 三个（`qq_request_permission` 也曾漏，那个工具已随申请闸门下线）；
+| | 主控制台 3100（`public/console.html`） | 专项控制台 3101（`tools/extra-console/`） |
+| --- | --- | --- |
+| 清单来源 | **写死在 HTML 里的 `<label>`**（`#v2Tools` 那个块） | `tool-groups.mjs` 的分组表 |
+| 现值来源 | `GET /api/socialV2/config` 的 `tools` | 同一个端点 |
+| 说明详细度 | 一句话 | 分组 + 风险标注 + 「一个开关管 N 个工具」 |
+| 适用场景 | 单文件、离线可用、不依赖 3101 | 想细调时用 |
+
+**写死清单是个坑，2026-11-10 才补上**：`saveV2Config()` / `loadV2Config()` 都只认
+`[data-v2-tool]`，所以**界面上没有的开关 = 永远改不了**（存不住，也看不见当前状态）。
+实测那之前只有 29 个开关，漏了 19 个 —— 图库四件套、日记、空间动态流与五个写操作、
+约定、发文件、通话、本机执行、生图、看视频、看屏幕，其中 `localExec`（真跑命令）和
+`watchScreen`（看屏幕）是最重的两档，想关都关不掉。现在补成 48 个、与 bridge 的
+`toolFlags` 一一对齐，并按 8 组显示（读 / 发 / 语音 / 记忆 / 表情图片 / 空间 / 约定日记 / 重能力）。
+
+`scripts/test-console-static.mjs` 现在会从 `src/bridge.js` 里解析出 `toolFlags`，断言
+「界面开关数 == bridge 的开关数」「双向零差异」「界面上不再出现已合并的 `qq_speak`」——
+以后再漏就直接红。（用 `bridge.js` 的 `toolFlags` 而不是 `config.json` 当真相来源，
+因为 `config.json` 被 gitignore，全新 clone 没有它。）
+
+专项控制台那份分组表继续由 `test-extra-console.mjs` 对账。
+
+**历史坑（两个都已修，留着免得再踩）**：
+
+1. **后加的工具主控制台看不到** —— 曾漏 `qq_say` / `qq_promise` / `qq_promise_done`，
+   以及 `qq_request_permission`（那个工具已随申请闸门下线）。
 2. **一个开关管多个工具时只显示其中一个** —— `speak` 曾同时管 `qq_speak` 和 `qq_say`，
-   在那边取消勾选会把两个都关掉，而 `qq_say` 根本没显示，**用户看不到自己关了什么**。
-   （2026-10-20 已把 `qq_speak` 合并进 `qq_say`，这个具体的坑没了；
-   但"一开关多工具"这种现象本来还存在 —— 比如 `memory` 管 4 个工具。）
-
-所以专项控制台改成：**现值从桥接现读，分组说明放在 `tool-groups.mjs`**
-（3101 自己目录里的文件，插件更新不会碰）。界面会把「一个开关管 N 个工具」标出来。
+   取消勾选会把两个都关，而 `qq_say` 根本没显示。2026-10-20 已把 `qq_speak` 合并进 `qq_say`。
+   现在「一开关多工具」仍然存在（`memory` 管 3 个、`localExec` 管 7 个、`call` 管 4 个、
+   `promise` 管 2 个、`sendVoice` 管 2 个），但界面上会把每个开关管的所有工具名都列出来。
 
 `tool-groups.mjs` 与真实代码**双向对账**（由 `test-extra-console.mjs` 钉住）：
 

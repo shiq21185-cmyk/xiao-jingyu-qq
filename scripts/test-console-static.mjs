@@ -33,6 +33,34 @@ const tools = [...html.matchAll(/data-v2-tool="([A-Za-z]+)"/g)].map((m) => m[1])
 ok(tools.includes('sendVoice'), 'sendVoice 开关存在', `共 ${tools.length} 个开关`);
 ok(new Set(tools).size === tools.length, '工具开关无重复');
 
+// ⭐ 2026-11-10 补：界面开关必须与桥接的 toolFlags **完全一致**。
+//
+// 为什么必须钉这条：主控制台的清单是写死在 HTML 里的，而 saveV2Config() /
+// loadV2Config() 都只认 `[data-v2-tool]`。所以**界面上没有的开关 = 永远改不了**——
+// 存不住、也看不见当前是开是关。
+// 实测过的真实事故：2026-11-10 之前界面只有 29 个开关，漏了 19 个（图库四件套、
+// 日记、空间动态流与五个写操作、约定、发文件、通话、本机执行、生图、看视频、看屏幕），
+// 其中 localExec（真跑命令）和 watchScreen（看屏幕）是最重的两档 —— 想关都关不掉。
+// 反向漏也一样糟：界面多出 config 里没的键，保存时会被桥接按 toolFlags 丢弃，
+// 用户以为存上了其实没存。
+//
+// 真相来源用 src/bridge.js 里的 `toolFlags` 名单（不是 config.json —— 那个被
+// gitignore，全新 clone 没有它；而 toolFlags 决定"哪些键能被存下来"，永远在仓库里）。
+const bridgeSrc = fs.readFileSync(path.join(ROOT, 'src', 'bridge.js'), 'utf8');
+const flagMatch = bridgeSrc.match(/const toolFlags = \[([\s\S]*?)\];/);
+ok(!!flagMatch, '能从 src/bridge.js 里解析出 toolFlags 名单');
+if (flagMatch) {
+  const bridgeFlags = [...flagMatch[1].matchAll(/'([A-Za-z]+)'/g)].map((m) => m[1]);
+  const uiSet = new Set(tools);
+  const missing = bridgeFlags.filter((f) => !uiSet.has(f));
+  const extra = tools.filter((f) => !bridgeFlags.includes(f));
+  ok(missing.length === 0, '界面没有漏掉任何开关', missing.length ? `漏了 ${missing.length} 个：${missing.join(', ')}` : `bridge ${bridgeFlags.length} 个 / 界面 ${tools.length} 个`);
+  ok(extra.length === 0, '界面没有多出桥接不认识的开关', extra.length ? `多出：${extra.join(', ')}` : '');
+  ok(tools.length === bridgeFlags.length, '开关数量与 bridge toolFlags 一致', `${tools.length} vs ${bridgeFlags.length}`);
+  // qq_speak 已于 2026-10-20 合并进 qq_say，界面上不该再出现这个名字
+  ok(!/qq_speak<b|<b>qq_speak/.test(html), '界面上不再出现已合并的 qq_speak');
+}
+
 console.log('## 语音面板接线');
 ok(/id="voiceRefreshBtn"/.test(html) && /getElementById\('voiceRefreshBtn'\)\.addEventListener/.test(html), '刷新按钮已绑定事件');
 ok(/getElementById\('voiceSendBtn'\)\.addEventListener/.test(html), '试发按钮已绑定事件');

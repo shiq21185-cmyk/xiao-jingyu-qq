@@ -806,6 +806,36 @@ summary {
   font-weight:500;
   color:var(--code-fg-strong)
 }
+
+.v2-tool-group {
+  grid-column:1/-1;
+  display:flex;
+  flex-wrap:wrap;
+  align-items:baseline;
+  gap:4px 10px;
+  margin:14px 0 -2px;
+  padding-bottom:6px;
+  border-bottom:1px solid var(--border-subtle)
+}
+.v2-tool-group:first-child {
+  margin-top:0
+}
+.v2-tool-group-title {
+  font-size:12px;
+  font-weight:700;
+  color:var(--text-strong);
+  letter-spacing:.02em
+}
+.v2-tool-group-note {
+  font-size:11px;
+  color:var(--muted-soft)
+}
+.v2-tool-item.danger {
+  border-color:var(--danger-border, #f0c9c9)
+}
+.v2-tool-item.danger b {
+  color:var(--danger-fg, #b23b3b)
+}
 table {
   width:100%;
   border-collapse:collapse;
@@ -2004,35 +2034,62 @@ button:active:not(:disabled) {
 
       <details class="settings-group"><summary>工具开关（关闭后 AI 不再拿到该工具；需重启 DSH 刷新工具清单，重启前仅调用时拒绝）</summary><div class="settings-content">
       <div class="v2-tool-list" id="v2Tools">
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getPrompt"> <span><b>qq_get_prompt</b><span class="meta">查看角色卡、推荐值、可用工具、当前唤醒配置</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getUnread"> <span><b>qq_get_unread_messages</b><span class="meta">查看未读消息，不自动标记已读</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getRecent"> <span><b>qq_get_recent_messages</b><span class="meta">查看最近消息，支持 offset 扩大范围</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="socialState"> <span><b>qq_social_state</b><span class="meta">查看当前 WakeConfig、未读数、上次唤醒原因等</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendGroup"> <span><b>qq_send_group_message</b><span class="meta">向指定群发送一条纯文本消息</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendPrivate"> <span><b>qq_send_private_message</b><span class="meta">向指定好友发送一条纯文本消息</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="reply"> <span><b>qq_reply</b><span class="meta">引用/回复某条群消息并发送文本</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendMessage"> <span><b>qq_send_message</b><span class="meta">统一发送：一条/多条/引用/自定义或按字数计算间隔</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendPoke"> <span><b>qq_send_poke</b><span class="meta">发送 QQ 拍一拍（群聊传 targetUserId，私聊可省）</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="waitMessages"> <span><b>qq_wait_for_messages</b><span class="meta">短暂等待新消息，有新消息立即返回或超时返回</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="feedback"> <span><b>qq_report_feedback</b><span class="meta">向控制台反馈 AI 遇到的问题/困惑</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getMyRecent"> <span><b>qq_get_my_recent_messages</b><span class="meta">查看自己最近发过的消息，避免重复</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getMessageDetail"> <span><b>qq_get_message_detail</b><span class="meta">按 message_id 查看单条消息完整内容</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getImages"> <span><b>qq_get_message_images</b><span class="meta">查看消息中的图片/表情内容</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getForwardMsg"> <span><b>qq_get_forward_msg</b><span class="meta">查看当前会话收到的合并转发消息内容</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getActiveMembers"> <span><b>qq_get_active_members</b><span class="meta">查看最近活跃成员列表</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="setWakeConfig"> <span><b>qq_set_wake_config</b><span class="meta">设置唤醒/潜水条件：无限期、有限时间、@/名字/关键词/概率等</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="markRead"> <span><b>qq_mark_read</b><span class="meta">标记当前未读为已读（看过但决定不回复）</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="memory"> <span><b>qq_memory_append / qq_memory_query</b><span class="meta">轻量记忆：话题/想说的话/群友印象</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="listStickers"> <span><b>qq_list_stickers</b><span class="meta">查看/搜索 QQ 收藏表情（含备注和本地笔记）</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getStickerImage"> <span><b>qq_get_sticker_image</b><span class="meta">看图理解没有备注的收藏表情</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendSticker"> <span><b>qq_send_sticker</b><span class="meta">发送收藏表情（一条消息只能一张，不能带文字）</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="collectSticker"> <span><b>qq_collect_sticker</b><span class="meta">AI 偶尔收藏别人发的表情并写简短备注</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="stickerNote"> <span><b>qq_sticker_note</b><span class="meta">给表情记录本地含义/标签/用法</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="setStickerRemark"> <span><b>qq_set_sticker_remark</b><span class="meta">修改 QQ 官方表情备注（默认禁用，慎用）</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendQzone"> <span><b>qq_send_qzone_msg</b><span class="meta">发表 QQ 空间说说（自主发送，公开内容）</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getQzone"> <span><b>qq_get_qzone_list</b><span class="meta">查看 QQ 空间说说列表（只读，能看见自己发过的说说）</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendVoice"> <span><b>qq_send_voice / qq_list_voices</b><span class="meta">发送语音条（只能发语音库里的音频；偶然而为的强表达）</span></span></label>
-        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="speak"> <span><b>qq_speak</b><span class="meta">现合成语音：她给你一段文字，本机念出来发成语音条（只需 socialV2.tts.enabled 也开着）</span></span></label>
+        <div class="v2-tool-group"><span class="v2-tool-group-title">读消息 / 状态</span><span class="v2-tool-group-note">她看东西用的，关掉她就像被蒙住眼</span></div>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getPrompt"> <span><b>qq_get_prompt</b><span class="meta">查角色卡、推荐值、当前唤醒配置</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getUnread"> <span><b>qq_get_unread_messages</b><span class="meta">看未读消息，不自动标已读</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getRecent"> <span><b>qq_get_recent_messages</b><span class="meta">看最近消息，可 offset 往前翻</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="socialState"> <span><b>qq_social_state</b><span class="meta">看自己的唤醒 / 潜水状态</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getMyRecent"> <span><b>qq_get_my_recent_messages</b><span class="meta">看自己最近发过什么，避免重复</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getMessageDetail"> <span><b>qq_get_message_detail</b><span class="meta">按 id 看单条消息详情</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getActiveMembers"> <span><b>qq_get_active_members</b><span class="meta">看最近谁在说话</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getImages"> <span><b>qq_get_message_images</b><span class="meta">看消息里的图片 / 表情</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getForwardMsg"> <span><b>qq_get_forward_msg</b><span class="meta">看合并转发（这个描述最长，约 1k token）</span></span></label>
+        <div class="v2-tool-group"><span class="v2-tool-group-title">发消息</span><span class="v2-tool-group-note">她说话用的，这几个通常都该开着</span></div>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendMessage"> <span><b>qq_send_message</b><span class="meta">统一发送：一条 / 多条 / 引用 / 按字数算间隔</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="reply"> <span><b>qq_reply</b><span class="meta">引用回复某条群消息</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendGroup"> <span><b>qq_send_group_message</b><span class="meta">群聊单条文本（跨模式共用，开关在调用时生效）</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendPrivate"> <span><b>qq_send_private_message</b><span class="meta">私聊单条文本（跨模式共用，开关在调用时生效）</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendPoke"> <span><b>qq_send_poke</b><span class="meta">拍一拍</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="waitMessages"> <span><b>qq_wait_for_messages</b><span class="meta">等新消息：等她说完再回 / 沉睡前观察</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="markRead"> <span><b>qq_mark_read</b><span class="meta">标记已读（看过但决定不回）</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="setWakeConfig"> <span><b>qq_set_wake_config</b><span class="meta">设置下次什么时候醒 / 潜水条件</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="feedback"> <span><b>qq_report_feedback</b><span class="meta">向你反馈她遇到的问题（关不掉，只记录）</span></span></label>
+        <div class="v2-tool-group"><span class="v2-tool-group-title">语音（说话）</span><span class="v2-tool-group-note">speak 现在只管 qq_say（qq_speak 已于 2026-10-20 合并进来）</span></div>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="speak"> <span><b>qq_say</b><span class="meta">现合成语音：给一段文字，本机念出来发成语音条。默认「开口说、发不出去才打字」</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendVoice"> <span><b>qq_send_voice / qq_list_voices</b><span class="meta">发语音库（audio/）里现成的音频，不是她说话。默认关</span></span></label>
+        <div class="v2-tool-group"><span class="v2-tool-group-title">记忆</span><span class="v2-tool-group-note">她记事用的</span></div>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="memory"> <span><b>qq_memory_append / query / remove</b><span class="meta">轻量记忆：话题 / 想说的话 / 群友印象。<b>一个开关管三个工具</b></span></span></label>
+        <div class="v2-tool-group"><span class="v2-tool-group-title">表情与图片</span><span class="v2-tool-group-note">聊天里的轻量表达 + 群图库</span></div>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="listStickers"> <span><b>qq_list_stickers</b><span class="meta">查看收藏表情</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getStickerImage"> <span><b>qq_get_sticker_image</b><span class="meta">看表情长什么样</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendSticker"> <span><b>qq_send_sticker</b><span class="meta">发收藏表情</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="collectSticker"> <span><b>qq_collect_sticker</b><span class="meta">收藏别人发的表情</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="stickerNote"> <span><b>qq_sticker_note</b><span class="meta">给表情记含义 / 标签</span></span></label>
+        <label class="v2-tool-item danger"><input type="checkbox" data-v2-tool="setStickerRemark"> <span><b>qq_set_sticker_remark</b><span class="meta">改 QQ 官方表情备注。默认关（会动账号上的东西）</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="listPhotos"> <span><b>qq_photo_list</b><span class="meta">列群图库</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getPhotoImage"> <span><b>qq_get_photo_image</b><span class="meta">看群图内容</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendPhoto"> <span><b>qq_send_photo</b><span class="meta">发群图</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="photoNote"> <span><b>qq_photo_note</b><span class="meta">给群图记备注。默认关</span></span></label>
+        <div class="v2-tool-group"><span class="v2-tool-group-title">QQ 空间</span><span class="v2-tool-group-note">写操作只能是她自己起的回合，任何人命令都不算</span></div>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="sendQzone"> <span><b>qq_send_qzone_msg</b><span class="meta">发说说（对外可见）</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="qzoneFeeds"> <span><b>qq_get_qzone_feeds</b><span class="meta">看好友动态流</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="getQzone"> <span><b>qq_get_qzone_list</b><span class="meta">看自己的说说列表</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="qzoneLike"> <span><b>qq_qzone_like</b><span class="meta">点赞</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="qzoneUnlike"> <span><b>（操作开关）</b><span class="meta">取消赞 —— 它是 qq_qzone_like 的 unlike 参数，<b>不是独立工具</b></span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="qzoneComment"> <span><b>qq_qzone_comment</b><span class="meta">评论别人的说说（对外可见）</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="qzoneDelete"> <span><b>qq_qzone_delete</b><span class="meta">删自己的说说</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="qzoneSetRight"> <span><b>qq_qzone_set_right</b><span class="meta">改说说可见范围</span></span></label>
+        <div class="v2-tool-group"><span class="v2-tool-group-title">约定与日记</span></div>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="promise"> <span><b>qq_promise / qq_promise_done</b><span class="meta">约定到点做事（叫起床 / 提醒）。<b>一个开关管两个工具</b></span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="writeDiary"> <span><b>qq_write_diary</b><span class="meta">写日记</span></span></label>
+        <label class="v2-tool-item"><input type="checkbox" data-v2-tool="readDiary"> <span><b>qq_read_diary</b><span class="meta">翻日记</span></span></label>
+        <div class="v2-tool-group"><span class="v2-tool-group-title">重能力：本机 / 文件 / 媒体</span><span class="v2-tool-group-note">这几组都在你的电脑上真动手或花钱，只对管理员私聊（群里另开的两项见说明）</span></div>
+        <label class="v2-tool-item danger"><input type="checkbox" data-v2-tool="sendFile"> <span><b>qq_send_file</b><span class="meta">发文件：联网下载 / 读本机文件 → QQ 文件气泡。管理员私聊和群聊都能用，群里只认下载目录。它会在你电脑上真下载真落盘</span></span></label>
+        <label class="v2-tool-item danger"><input type="checkbox" data-v2-tool="drawImage"> <span><b>qq_draw_image / qq_send_image</b><span class="meta">生图：画面描述 → 本机生图工作室 → 图发进会话。管理员私聊不限、群聊默认 5 张/天（一张约 4 分钱）</span></span></label>
+        <label class="v2-tool-item danger"><input type="checkbox" data-v2-tool="watchVideo"> <span><b>qq_watch_video</b><span class="meta">看视频：链接 → 切成带时码的宫格图，真下载真转码。管理员私聊不限、其他会话默认 5 次/天</span></span></label>
+        <label class="v2-tool-item danger"><input type="checkbox" data-v2-tool="watchScreen"> <span><b>qq_watch_screen</b><span class="meta">看屏幕：看「这段时间画面变了几次」。<b>只在管理员私聊开</b>——屏幕上有密码、别人的私信</span></span></label>
+        <label class="v2-tool-item danger"><input type="checkbox" data-v2-tool="call"> <span><b>qq_call_status / answer / hangup / say</b><span class="meta">语音通话：接 / 挂你电脑上那台 QQ 的电话、在电话里说话。<b>默认关</b>，要 VB-CABLE + 通话 sidecar</span></span></label>
+        <label class="v2-tool-item danger"><input type="checkbox" data-v2-tool="localExec"> <span><b>qq_run_command / read_file / write_file / screenshot / mouse / keyboard / windows</b><span class="meta">★ 本机执行：真跑命令、真读写文件、真截屏动鼠标。<b>最重的一组</b>，守卫与桥接都只放管理员私聊，群聊与普通成员私聊一律拒绝。默认关</span></span></label>
       </div>
 
       </div></details>
@@ -2299,9 +2356,11 @@ button:active:not(:disabled) {
         这张表<b>不是另写的一份规则</b> —— 每一格都由守卫的 <code>verdictFor()</code> 现算，
         所以「表里显示的」永远等于「实际执行的」。改动守卫名单后刷新本页即可看到新结果。
         <br>三类会话：<b>管理员私聊</b>（ownerQQ 的私聊）／<b>群聊</b>（任何群）／<b>普通成员私聊</b>（白名单里除管理员外的私聊）。
-        <br><b>2026-10-29 起改成全量登记</b>：三个 MCP server 注册的<b>每一个</b>工具都必须出现在某个分组里，
-        漏一个 <code>scripts/test-tool-classification.mjs</code> 就红。所以——<b>没出现在这张表里的 MCP 工具 = 已经不存在的工具</b>，
-        而不是"可能被偷偷放行了"。每组标题后面的档位标签（三类都放 / 只给管理员私聊 / …）就是该组的口径。
+        <br><b>2026-10-29 起改成全量登记</b>：四个 MCP server（<code>mcp-snowluma-safe</code> /
+        <code>mcp-web-search-safe</code> / <code>mcp-host-server</code> / <code>mcp-body</code>）注册的
+        <b>每一个</b>工具都必须出现在某个分组里，漏一个 <code>scripts/test-tool-classification.mjs</code> 就红。
+        所以——<b>没出现在这张表里的 MCP 工具 = 已经不存在的工具</b>，而不是"可能被偷偷放行了"。
+        每组标题后面的档位标签（三类都放 / 只给管理员私聊 / …）就是该组的口径。
       </div>
       <div id="privMatrixBody" class="meta" style="margin-top:10px">正在读取…</div>
     </section>

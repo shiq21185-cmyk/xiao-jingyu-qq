@@ -564,9 +564,14 @@ summary:hover { color: var(--accent-hover); }
   <details>
     <summary>几个容易误关的地方（点开）</summary>
     <ul class="hint" style="margin:8px 0 0; padding-left:20px; line-height:1.7">
-      <li><b>speak</b> 同时管 <code class="inline">qq_say</code> 和 <code class="inline">qq_speak</code>；
-        <b>memory</b> 管 4 个记忆工具；<b>sendVoice</b> 管 <code class="inline">qq_send_voice</code> 和
-        <code class="inline">qq_list_voices</code>；<b>promise</b> 管 2 个约定工具。</li>
+      <li><b>speak</b> 只管 <code class="inline">qq_say</code> 一个工具（<code class="inline">qq_speak</code>
+        已于 2026-10-20 合并进它，不再是独立工具）；
+        <b>memory</b> 管 3 个记忆工具（<code class="inline">qq_memory_append</code> /
+        <code class="inline">qq_memory_query</code> / <code class="inline">qq_memory_remove</code>）；
+        <b>sendVoice</b> 管 <code class="inline">qq_send_voice</code> 和
+        <code class="inline">qq_list_voices</code>；<b>promise</b> 管 2 个约定工具；
+        <b>localExec</b> 管 7 个（跑命令 / 读写文件 / 截屏 / 鼠标 / 键盘 / 列窗口）；
+        <b>call</b> 管 4 个通话工具。</li>
       <li>关开关后<b>要重启 DSH</b> 才真正从工具清单里消失；在那之前只是调用时被拒。</li>
       <li>标「⚠️ 桥接不认识」的开关存不进去 —— 那是桥接的 <code class="inline">toolFlags</code>
         名单漏登记了它，属于既有 bug，不是你的操作问题。</li>

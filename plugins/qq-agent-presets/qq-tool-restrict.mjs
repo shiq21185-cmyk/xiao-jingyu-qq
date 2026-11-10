@@ -29,7 +29,8 @@
 // 于是「这一轮是不是主人私聊」可以由**会话 id 反查 QQ 号**得出，而不必猜前缀。
 //
 // ⚠️ fail-closed：找不到仓库根 / 读不到文件 / 会话不在表里 / ownerQQ 没配
-//    ⇒ 一律当成「不是主人」，需要主人的工具（BILI_OWNER_ONLY）全部拒绝。
+//    ⇒ 一律当成「不是主人」，需要主人的工具（OWNER_PRIVATE_ONLY_DSH_TOOLS、
+//    WEB_HAND_TOOLS、CALL_TOOLS 等）全部拒绝。
 //    绝不因为"读不到"就放宽 —— 这正是最容易写出越权的那条路。
 import fs from 'node:fs'
 import path from 'node:path'
@@ -332,9 +333,10 @@ const SAFE_PREFIXES = [
   'mcp__snowluma__',
   'mcp__snowluma-host__',
   'mcp__web-search-safe__',
-  // ⚠️ 手机控制（adb）**不在**前缀白名单里了：它改成「要授权才放行」，
-  //    （2026-11-06：手机工具整套下线，那段申请闸门已删除；phone_status 仍是只读放行）
-  //    （她得先能看一眼设备在不在线，否则连"能不能玩"都判断不了）。
+  // ⚠️ 手机控制（adb）**不在**前缀白名单里：2026-11-06 手机工具整套下线
+  //    （连同当年的「申请闸门」一起删除，`state/permits.json` 已无人读写）。
+  //    现在只有 phone_status / phone_flows 两个只读工具走 PHONE_READONLY_OWNER_TOOLS
+  //    单独放行 —— 她得先能看一眼设备在不在线，否则连"能不能玩"都判断不了。
 ]
 
 /**
@@ -398,12 +400,14 @@ export const OPEN_TO_ALL_SESSIONS = new Set([
   'mcp__snowluma__qq_qzone_set_right',
   // —— 上报问题（工具消失会让她以为"连上报都坏了"，所以永远注册；见 mcp server）——
   'mcp__snowluma__qq_report_feedback',
-  // —— 刷B站 · 只读 ——
+  // —— 刷B站 · 只读 ——（2026-11-06 已整包下线）
   //
   // 2026-11-06 主人说「刷B站的都不要了」（m05483），`bili_video` 已从
-  // `src/mcp-web-search-safe.js` 下线。这里保留注释而不是留个空行：
-  // 下次有人问"B 站视频能不能读"，答案是"能，但要真看画面走 qq_watch_video"。
-  // 要恢复：把 mcp-web-search-safe.js 里那段注册块加回来，再把名字加回本集合。
+  // `src/mcp-web-search-safe.js` 下线，这里不再登记任何 `bili_*` 名字。
+  // 下次有人问"B 站视频能不能读"，答案是：能，但走 `qq_watch_video`
+  // （真下载真转码看画面，属 mcp__snowluma__ 前缀下，见上面 chat-media 段）。
+  // 要恢复：把 mcp-web-search-safe.js 里那段注册块加回来，再把名字加回本集合，
+  // 否则它会撞最后的兜底拒绝（"不在 QQ 桥接白名单内"）。
   // —— 搜索 / 抓公开网页（MCP 版，不是 DSH 原生那两个）——
   //
   // ⚠️ 这两个是 2026-10-26 审计时**被迫表态**的一格，记在这里免得下次再有人问：
@@ -540,11 +544,10 @@ const PHONE_READONLY = new Set([
 /**
  * ⭐ 手机只读两件 —— **只给管理员私聊**（2026-10-24 修 bug）。
  *
- * 为什么需要这一档：手机整包已经从 SAFE_PREFIXES 移出（改成"要授权才放行"），
- * （2026-11-06 注：permitScopeOf 已随申请闸门一起删除；这段只说明 phone_status 为何单独放行）、
- * **跳过授权闸门**；再往下既不在 SAFE_EXACT 也不在前缀白名单里 ⇒ 落到最后的兜底拒绝。
- * 两条路都不走 ⇒ 她**拿着有效授权也调不通**，连"模拟器在不在线"都判断不了
- * （实测 10-24 那次申请正是撞在这里：授权成功、一调 phone_status 就被拦）。
+ * 为什么需要这一档：手机整包不在 SAFE_PREFIXES 里（2026-11-06 已整体下线），
+ * 于是 phone_status / phone_flows 既不在 SAFE_EXACT 也不在前缀白名单里 ⇒
+ * 不单独放行就会落到最后的兜底拒绝，她连"模拟器在不在线"都判断不了。
+ * （2026-11-06 注：当年的 permitScopeOf 已随申请闸门一起删除，这段只剩"为何单独放行"。）
  *
  * 为什么单独一档、不塞进 SAFE_EXACT：SAFE_EXACT 是**三类会话全放**，
  * 群友不该能探主人手机在不在线。也不塞进 OWNER_PRIVATE_ONLY：那个集合的拒绝
@@ -565,26 +568,26 @@ export const PHONE_READONLY_OWNER_TOOLS = new Set([
 ])
 
 /**
- * ⭐⭐ 「向我申请」闸门（2026-10-19，主人要求）。
+ * ⭐⭐ （历史）「向我申请」闸门 —— 2026-10-19 加，**2026-11-06 已整体删除**。
  *
- * 主人的原话是：希望她「想我的时候都可以来找我」——比如**向我申请**使用手机玩游戏、
- * 或者去看 B站。关键在"申请"两个字：不是禁止，也不是放任，而是**要经过他**。
+ * 当年主人的意思是：她「想我的时候都可以来找我」，比如**向我申请**用手机玩游戏、
+ * 或者去看 B站 —— 关键在"申请"：不是禁止，也不是放任，而是要经过他。
  *
- * 所以这里的判定顺序是：
- *   1. 工具不属于任何需要授权的类别 ⇒ 走原来的白名单（不变）。
- *   2. 属于，但**不是管理员私聊** ⇒ 直接拒绝。群里任何人、任何普通成员的私聊，
- *      都不可能拿到手机或 B站 的动手权 —— 这一档不看授权文件，授权文件写了也没用。
- *   3. 属于，且是管理员私聊 ⇒ 读 state/permits.json，看此刻有没有**未过期**的授权。
- *      没有 ⇒ 拒绝（2026-11-06：手机与 B站 都已下线，这条分支目前走不到；
- *      保留是因为「申请闸门」这套机制还在，将来再加玩具可原样复用）。
+ * 现在这一套（`qq_request_permission` 工具、`state/permits.json`、
+ * `/api/socialV2/permits` 与 `/revoke-permit` 端点、`scripts/test-permit-gate.mjs`）
+ * **全部删掉了**，因为被授权的那两类能力本身也整包下线了：
+ *   · 手机 adb 控制（截图 / 点按 / 滑动 / 消消乐）—— 不再挂 mcp-games / phone-mcp；
+ *   · B站 全套（`bili_video` 等）—— 从 mcp-web-search-safe 摘掉。
+ * 所以现在它们不是"要申请"，而是**撞兜底拒绝**（"不在 QQ 桥接白名单内"）。
  *
- * 🔴 fail-closed：读不到文件 / 找不到仓库根 / 解析失败 ⇒ 一律当**没有授权**。
- *    这与 ownerLookup 的口径一致：读不到只会让能力变少，绝不凭空变多。
- *
- * 为什么判在守卫（DSH 进程）而不是桥接的 HTTP 端点：
- *   这些工具（phone-mcp / bili-scroll）根本不经过桥接 —— 它们是 DSH 直接挂的 MCP
- *   server。桥接只能在**发授权/收回授权**这一侧起作用，执行侧的唯一卡点就是这里。
- *   如果把判定写在桥接里，等于没有判定。
+ * 这段注释留着是因为它解释了两条仍然成立的纪律：
+ *   1. **fail-closed**：读不到文件 / 找不到仓库根 / 解析失败 ⇒ 当没有授权。
+ *      与 ownerLookup 同口径：读不到只会让能力变少，绝不凭空变多。
+ *   2. **判定必须在守卫（DSH 进程）里，不能写在桥接**：这些工具（phone-mcp /
+ *      bili-scroll）根本不经过桥接，是 DSH 直接挂的 MCP server。桥接只能在
+ *      "发授权 / 收回授权"这一侧起作用，执行侧的唯一卡点就是守卫 ——
+ *      把判定写在桥接里等于没有判定。
+ * 将来再加"要她开口问"的玩具，可照这套原样复用（先把 permit-lib 造回来）。
  */
 // 无害模型侧工具：ask_user_question 用于把问题转给管理员/用户，
 // todo_write 仅维护任务列表。若后续 preset 不再挂载这些工具，保留无害。
@@ -660,9 +663,10 @@ export const CONTEXT_TOOLS = new Set([
  *   （已下线 2026-11-06）qq_get_group_members —— 群成员名单。
  *
  * ⭐ 已放开的（2026-10-19 主人明确指示，**不再**属于本名单）：
- *   qq_send_voice / qq_speak / qq_send_qzone_msg —— 发声类。语音与说说的内容由她自己
+ *   qq_send_voice / qq_say / qq_send_qzone_msg —— 发声类。语音与说说的内容由她自己
  *     生成，且都受**会话令牌绑定会话**约束（桥接的 agentTokenOk(key, token)），
  *     不会因为开放而变成"能替别人发声"。它们能否用还另受 socialV2.tools 开关控制。
+ *     （`qq_speak` 已于 2026-10-20 并进 `qq_say`，不再是独立工具。）
  *
  * ⚠️ 刻意**不在**这个名单里的（它们必须留着，否则她没法正常聊天）：
  *   qq_send_message / qq_reply / qq_send_private_message / qq_send_group_message
@@ -865,13 +869,10 @@ const QZONE_WRITE_OPS = new Set([
  */
 export function verdictFor(name, kind, opts = {}) {
   if (typeof name !== 'string' || name.length === 0) return '工具名无效，已拒绝'
-  // ⭐⭐ 「向我申请」闸门：手机 / 跑一轮 B站 要管理员当场同意过才放行。
-  //    ⚠️ 必须排在 BILI_ALLOWED / SAFE_PREFIXES 之前 —— bili_run 同时也在
-  //    BILI_OWNER_ONLY 里，而那个集合只判"是不是管理员私聊"、不判"有没有申请过"；
-  //    手机工具则本来就走前缀白名单。两者都必须在**这里**先被拦一次。
-  // ⭐ 手机只读两件：先于授权闸门判定（它们免授权，但要限定会话）。
-  //    （2026-11-06：这段的历史原因已随授权闸门下线，保留只为说明为什么 phone_status 要单独放行），
-  //    一旦走到下面就会跳过授权分支、最终撞兜底拒绝（2026-10-24 的 bug）。
+  // ⭐ 手机只读两件：必须在这里先判。
+  //    手机整包 2026-11-06 下线后，它们既不在 SAFE_EXACT 也不在前缀白名单里；
+  //    不先判就会一路走到最后的兜底拒绝（2026-10-24 那个 bug 的形状）。
+  //    （当年的「向我申请」闸门已随之删除，见上面 PHONE_READONLY_OWNER_TOOLS 的注释。）
   if (PHONE_READONLY_OWNER_TOOLS.has(name)) {
     if (kind === SESSION_KIND.OWNER_PRIVATE) return undefined
     return kind === SESSION_KIND.GROUP
@@ -1043,7 +1044,8 @@ export function privilegeMatrix() {
     // ⭐ 2026-10-29 重整：以前这张表只覆盖了 77 个工具里的 39 个（漏掉整整 46 个），
     //    看表的人会以为"没列出来的就是没有"——实际上那些工具照样会被放行
     //    （`mcp__snowluma__` / `mcp__web-search-safe__` 前缀是整包放行）。
-    //    现在改成「全量登记」：三个 MCP server 注册的每个工具都必须出现在某一个组里，
+    //    现在改成「全量登记」：四个 MCP server（mcp-snowluma-safe / mcp-web-search-safe /
+    //    mcp-host-server / mcp-body）注册的每个工具都必须出现在某一个组里，
     //    scripts/test-tool-classification.mjs 会逐个数，漏一个就红。
     //    ⇒ 这张表从此可以当"能力面清单"读：没出现在表里的 MCP 工具 = 已经不存在的工具。
     groups: [
@@ -1248,7 +1250,7 @@ export function privilegeMatrix() {
       {
         id: 'web-safe',
         label: '搜公开网页 / 读别人给的链接',
-        note: '搜索、抓公开网页、读链接、看截图、关页、B站 视频 —— 走 src/safe-fetch.js：'
+        note: '搜索、抓公开网页、读链接、看截图、关页 —— 走 src/safe-fetch.js：'
           + '禁内网/环回/CGNAT/NAT64、先解析全部 DNS 再连（防 rebinding）、逐跳重定向重新校验、'
           + '限时限量，而且「没有主人登录态」。web_search 是 DSH 原生的那个（只接受 queries，'
           + '不接受 URL，没有 SSRF 攻击面）。',
@@ -1303,8 +1305,9 @@ export function apply(ctx) {
   // 2) 执行期白名单：任何不在允许范围内的工具调用都会被拒绝。
   //    ⭐ 判定逻辑全部在上面的 verdictFor()（纯函数）—— 控制台「权能矩阵」页
   //    用的也是同一个函数，所以**界面看到的 = 实际执行的**，不会漂移。
-  //    ⚠️ 必须把 exec.agent 传进去：手机/刷B站 的判定要按会话 id 反查 QQ 号，
-  //    再读 state/permits.json 看有没有主人当场给的授权。只传名字会让
-  //    （2026-11-06：这两类能力已整体下线，相关判定一并删除）死。
+  //    ⚠️ 必须把 exec.agent 传进去：会话类别（三类）要按会话 id 反查 QQ 号才能判
+  //    （state/sessions.json → private:QQ / group:群号）。只传名字会让
+  //    ownerLookup 拿不到 agent，一律 fail-closed 成"普通成员私聊"。
+  //    （2026-11-06：手机/B站 那套按 permits.json 判授权的逻辑已整体删除。）
   ctx.tools.guard((exec) => verdictFor(exec?.name, sessionKind(exec?.agent), { agent: exec?.agent }))
 }
