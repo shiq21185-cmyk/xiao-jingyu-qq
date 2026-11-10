@@ -152,6 +152,12 @@ const tests = [
   //    OPEN_TO_ALL_SESSIONS 里被**显式**登记过。必须每次回归都跑 ——
   //    否则下一个新工具又会静默地对群聊开放，而没人知道。
   'test-tool-classification.mjs',
+  // 🔴 管理员私聊的「手眼脑」守卫（2026-11-10 补的缺口）：
+  //    qq-owner-dsh preset 用 qq-tool-restrict-owner.mjs，把 read/write/edit/
+  //    glob/grep/pwsh/ops_bash 这 7 个 DSH 原生本地工具只放行管理员私聊。
+  //    补它之前全仓没有一条测试钉这个行为 —— 把它改成"三类全放行"或把 pwsh
+  //    从集合里删掉，56 个回归脚本会全绿，而群里的人就能让它在主人电脑上跑命令。
+  'test-owner-guard.mjs',
   // 🔴 网页上的「手」（2026-10-22 主人要的「给她加一个手」）：
   //    web_click / web_type / web_key / web_scroll / web_select / web_whats_there。
   //    它借的是**主人登录着的浏览器**，点一下可能是删除/付款/发帖 ——

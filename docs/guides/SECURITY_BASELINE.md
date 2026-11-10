@@ -169,7 +169,7 @@ DSH 的 Windows 文件沙箱按**能力 SID** 授权：SID 由 `sha256(规范化
 ## 四、发布前必须跑的检查（回归清单）
 
 ```bash
-npm run test:audit          # 离线回归脚本（含安全专项），必须全绿（2026-11-10：56 个）
+npm run test:audit          # 离线回归脚本（含安全专项），必须全绿（2026-11-10：57 个）
 npm run verify:adaptation   # DSH 适配一致性（preset/工具守卫/MCP 挂载/活 DSH 实测）
 npm run verify:persona      # 人格配置一致性
 npm run diagnose:acl        # ACL 收紧路径盘点（只读；需在**无沙箱**终端跑，见 §2.6）
