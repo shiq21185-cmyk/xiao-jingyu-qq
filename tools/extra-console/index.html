@@ -455,6 +455,19 @@ summary:hover { color: var(--accent-hover); }
     </div>
   </div>
 
+  <h3>长度闸门</h3>
+  <p class="hint">
+    超过这个字数的 <code class="inline">qq_say</code> 会被<b>直接改成文字发出去</b>（不报错）。
+    语音条适合短句 —— 她的日常句子中位数才 24 字，一条语音条对方要点开听 5~10 秒，
+    所以 30 字以上基本就该打字了。默认 <b>80</b>，填 <b>0</b> = 不限。
+  </p>
+  <div class="row">
+    <div class="field">
+      <label>超过多少字改发文字</label>
+      <input type="number" id="maxTextChars" min="0" step="1" placeholder="80">
+    </div>
+  </div>
+
   <details>
     <summary>语音是怎么发出来的（点开）</summary>
     <p class="hint" style="margin-top:8px">
@@ -880,11 +893,12 @@ function fillVoice(v) {
   $('autoReadback').checked = v.autoReadback === true;
   $('maxPerMinute').value = v.maxPerMinute ?? 0;
   $('maxPerHour').value = v.maxPerHour ?? 0;
+  $('maxTextChars').value = v.maxTextChars ?? 80;
 
   const box = $('voiceStatus');
   if (v.speaking) {
     box.innerHTML = `<b>常驻语音：开着</b> —— 她回话会先合成成语音条，发不出去才转文字。`
-      + `<br><span style="color:var(--dim)">引擎 ${esc(v.engine || '?')} · 音色 ${esc(v.voiceName || '?')} · 单条上限 ${v.maxChars} 字</span>`;
+      + `<br><span style="color:var(--dim)">引擎 ${esc(v.engine || '?')} · 音色 ${esc(v.voiceName || '?')} · 单条上限 ${v.maxChars} 字 · 超 ${v.maxTextChars ?? 80} 字改文字</span>`;
   } else if (!v.enabled) {
     box.innerHTML = '<b style="color:var(--warn)">语音已关闭</b> —— 她只会发文字。';
   } else if (!v.ttsEnabled) {
@@ -901,6 +915,7 @@ async function saveVoice(extra = {}) {
     autoReadback: $('autoReadback').checked,
     maxPerMinute: Number($('maxPerMinute').value) || 0,
     maxPerHour: Number($('maxPerHour').value) || 0,
+    maxTextChars: Number($('maxTextChars').value) || 0,
     ...extra
   };
   if (body.maxPerHour > 0 && body.maxPerMinute > body.maxPerHour) {

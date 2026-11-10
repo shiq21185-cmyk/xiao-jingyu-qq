@@ -347,6 +347,7 @@ const server = http.createServer(async (req, res) => {
           autoReadback: v2.voice?.autoReadback === true,
           maxPerMinute: Number(v2.voice?.maxPerMinute) || 0,
           maxPerHour: Number(v2.voice?.maxPerHour) || 0,
+          maxTextChars: Number(v2.voice?.maxTextChars) >= 0 ? Number(v2.voice?.maxTextChars) : 80,
           ttsEnabled: v2.tts?.enabled !== false,
           engine: String(v2.tts?.engine ?? ''),
           voiceName: String(v2.tts?.voice ?? ''),
@@ -420,7 +421,7 @@ const server = http.createServer(async (req, res) => {
       const vPatch = {};
       if (body?.voiceEnabled !== undefined) vPatch.enabled = body.voiceEnabled === true;
       if (body?.autoReadback !== undefined) vPatch.autoReadback = body.autoReadback === true;
-      for (const k of ['maxPerMinute', 'maxPerHour']) {
+      for (const k of ['maxPerMinute', 'maxPerHour', 'maxTextChars']) {
         if (body?.[k] !== undefined) {
           const n = Number(body[k]);
           if (!Number.isFinite(n) || n < 0) throw new Error(`${k} 必须是非负数字`);
@@ -432,7 +433,7 @@ const server = http.createServer(async (req, res) => {
       if (body?.ttsEnabled !== undefined) tPatch.enabled = body.ttsEnabled === true;
 
       if (!Object.keys(vPatch).length && !Object.keys(tPatch).length) {
-        throw new Error('没有要改的项（voiceEnabled / ttsEnabled / autoReadback / maxPerMinute / maxPerHour）');
+        throw new Error('没有要改的项（voiceEnabled / ttsEnabled / autoReadback / maxPerMinute / maxPerHour / maxTextChars）');
       }
 
       const sendBody = {};

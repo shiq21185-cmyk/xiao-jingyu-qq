@@ -2347,6 +2347,8 @@ function loadConfig() {
     loudness: 'normal',
     ffmpegPath: '',
     autoReadback: true,
+    // 语音条最大字数：超过就自动改发文字（2026-11-10）。0 = 不限。
+    maxTextChars: 80,
     ...(cfg.socialV2?.voice ?? {})
   };
 
@@ -3907,7 +3909,10 @@ async function main() {
       defaultVolume: Number(v.defaultVolume) > 0 ? Number(v.defaultVolume) : 1,
       loudness: v.loudness || 'normal',
       ffmpegPath: process.env.FFMPEG_PATH || v.ffmpegPath || null,
-      autoReadback: v.autoReadback !== false
+      autoReadback: v.autoReadback !== false,
+      // 语音条最大字数（2026-11-10）：超过就改发文字。0 = 不限。
+      // 默认 80 —— 一句话中位数 24 字，80 已经够一条语音条说得完了。
+      maxTextChars: Number(v.maxTextChars) >= 0 ? Number(v.maxTextChars) : 80
     };
   }
 
@@ -4393,6 +4398,23 @@ async function main() {
         mode: 'text',
         detail: '语音是主人自己关掉的（socialV2.tools.speak=false），这句已按文字发出去；以后直接打文字就行，不用再试语音、也不用到别处找原因。'
       };
+    }
+    // ⭐ 长度闸门（2026-11-10 主人要求：语音太多了、文字都没了）。
+    //    原因：她日常一句话中位数才 24 字，而一条语音条要对方点开、听 5~10 秒。
+    //    超长的本来就该打字 —— 语音条装不下，硬念出来也没人愿意听。
+    //    和上面 speak 关掉一样：**安静降级**，不报错（报错她会当故障重试）。
+    //    voiceOnly 显式要求「我就是要发语音」的不受此限，否则那句话会直接失败。
+    if (opts.voiceOnly !== true) {
+      const maxChars = Math.max(0, Number(vc.maxTextChars ?? 0));
+      if (maxChars > 0 && spoken.length > maxChars) {
+        log(`[speak-len] ${key} 文本 ${spoken.length} 字 > 上限 ${maxChars}，改发文字`);
+        await fallbackText();
+        return {
+          sent: true,
+          mode: 'text',
+          detail: `这句话 ${spoken.length} 字，超过语音条上限（${maxChars} 字），已按文字发出去。语音适合短句，长内容直接打字。`
+        };
+      }
     }
     if (vc.enabled) {
       try {
@@ -8007,7 +8029,7 @@ async function main() {
               merged.voice.loudness = ['off', 'quiet', 'normal', 'loud'].includes(merged.voice.loudness) ? merged.voice.loudness : 'normal';
             }
             if (merged.voice.ffmpegPath !== undefined) merged.voice.ffmpegPath = String(merged.voice.ffmpegPath ?? '').trim();
-            for (const k of ['maxSeconds', 'maxBytes', 'maxPerMinute', 'maxPerHour']) {
+            for (const k of ['maxSeconds', 'maxBytes', 'maxPerMinute', 'maxPerHour', 'maxTextChars']) {
               if (merged.voice[k] !== undefined) {
                 const n = Number(merged.voice[k]);
                 merged.voice[k] = Number.isFinite(n) && n >= 0 ? Math.round(n) : (current.voice?.[k] ?? 0);

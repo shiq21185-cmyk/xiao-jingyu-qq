@@ -86,19 +86,31 @@ test('social autonomy and visual, forwarding, sticker and web capabilities remai
   ]) assert.ok(prefix.includes(text), `missing capability or voice rule: ${text}`);
 });
 
-// ── 常驻语音（2026-10-20 主人要求：默认开口说，发不出去才打字）──────────────
-// 这一组不是"提醒她注意"，而是她**日常说话方式**的合同：
-//   · 默认用 qq_say（语音优先），不是 qq_send_message
+// ── 说话方式（2026-11-10 主人改：默认打字，语音留给有温度的时刻）────────────
+// 原来这组钉的是「默认开口说、能发语音就发语音」。那条规矩落实得**太好了**：
+// 语音占比从 6~13% 一路涨到 80%/100%，文字彻底消失，而她的句子中位数才 24 字 ——
+// 为 24 个字让对方点开听 5~10 秒的语音条。所以 2026-11-10 主人要求翻过来。
+//
+// 这一组是她**日常说话方式**的合同：
+//   · 默认 qq_send_message 打字；语音只在下面三种时刻用
 //   · 返回的 mode 是唯一实况，看到 text 不能重复补发（那会给对方造成重复消息）
 //   · 三条必须打字的例外（看/引用@/连试两次失败）
 //   · 语音被主人关掉时是「安静退回文字」，不是故障（2026-10-23 主人要求）
-// 少任何一条，行为都会退化成"又变回打字"、"语音失败后重复发送"，或者把设置当成 bug 反复重试。
-test('voice-first speaking is the default and its fallback contract is described', () => {
+//   · 80 字长度闸门（桥接硬拦，不靠自觉）
+// 少任何一条，行为都会退化成"又变回一句语音都没有"、"语音失败后重复发送"，
+// 或者把设置当成 bug 反复重试。
+test('speech defaults to text, and its length / fallback contract is described', () => {
   for (const text of [
-    '【说话方式：有语音就用语音】',
+    '【说话方式：默认打字，语音留给有温度的那一下】',
     'qq_say',
-    '默认开口说，能发语音就发语音，发不出去才打字',
-    '他发文字、他发语音、群里跟你说话 —— 你都回语音',
+    '**默认打字**',
+    '判据不是「能不能」，是「该不该」',
+    // 三种该发语音的时刻
+    '他发的是**语音条**',
+    '睡前晚安、早安、叫他名字',
+    // 长度闸门
+    '超过 80 字的 qq_say 会被桥接直接改成文字',
+    // mode 是唯一实况 + 不许补发
     '`mode` 是**唯一可信的实况**',
     '**看到 text 不要再补发一次**',
     // 语音被主人关掉：不是故障，安静改文字
@@ -110,9 +122,9 @@ test('voice-first speaking is the default and its fallback contract is described
     '@ 某人',
     '连试两次都被退成文字',
     // 语音本身的写法约束
-    '单条 300 字以内',
+    '单条 80 字以内',
     '别带 Markdown / 列表 / 代码块',
-  ]) assert.ok(prefix.includes(text), `missing voice-first rule: ${text}`);
+  ]) assert.ok(prefix.includes(text), `missing speech rule: ${text}`);
 });
 
 test('autonomy limits and the observation escape hatch stay described', () => {
