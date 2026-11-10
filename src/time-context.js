@@ -49,6 +49,65 @@ function pad2(n) {
   return String(n).padStart(2, '0');
 }
 
+/**
+ * 把 24 小时制说成中文口语的钟点：「下午四点零五分」「晚上十一点半」「凌晨零点零五分」。
+ *
+ * 为什么需要它（真实事故，2026-11-09）：
+ *   提示词只给 24 小时制的 `16:05`，模型得自己在脑子里减 12 才知道那是"下午四点"。
+ *   那天她看见 16:05，却把上下文里的"四点十分上课"接了上去，说出「四点十分了，往教室
+ *   走呢吧」；被自己发现说错后想补救，又编出一个「这会儿五点了」—— 同一回合里三个
+ *   钟点互相矛盾。给的 **16:05 一直是对的**，错在"24 小时制 → 口语"这一步要她自己算。
+ *
+ *   现在直接把口语读法摆在她眼前，她照抄就行，没有算错的机会。
+ *
+ * 读法规则（对齐真人口语，不是"十六点零五分"这种报时腔）：
+ *   - 0 点   → 零点      5 点 → 五点      12 点 → 十二点
+ *   - 小时段：0~4 凌晨 / 5~11 上午 / 12 中午 / 13~17 下午 / 18~23 晚上
+ *   - 整点说「下午四点」，半点说「下午四点半」，其余「下午四点零五分」「下午四点二十」
+ *   - 分钟 1~9 要补"零"（四点零五分），10 以上不补（四点二十）
+ *
+ * @param {Date} now
+ * @returns {string} 例：下午四点零五分
+ */
+export function spokenClock(now = new Date()) {
+  const d = now instanceof Date ? now : new Date(now);
+  const h = d.getHours();
+  const m = d.getMinutes();
+
+  const CN = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+  const hourWord = (() => {
+    if (h === 0) return '零';
+    if (h <= 10) return CN[h];
+    if (h === 11) return '十一';
+    const rest = h - 12;
+    if (rest === 0) return '十二';
+    return rest <= 10 ? CN[rest] : `十${CN[rest - 10]}`;
+  })();
+
+  // 12 点只在正午/午夜两处出现，说"中午十二点"/"晚上十二点"都自然，按小时的段走
+  const periodWord = (() => {
+    if (h === 0) return '';        // 0 点不说"凌晨零点"，直接"零点零五"最自然
+    if (h < 5) return '凌晨';
+    if (h < 9) return '早上';      // 5~8 点真人说"早上"，不说"上午"
+    if (h < 12) return '上午';
+    if (h === 12) return '中午';
+    if (h < 18) return '下午';
+    return '晚上';
+  })();
+
+  const minWord = (() => {
+    if (m === 0) return '整';
+    if (m === 30) return '半';
+    if (m < 10) return `零${CN[m]}`;
+    if (m < 20) return `十${CN[m - 10]}`;
+    const tens = Math.floor(m / 10);
+    const ones = m % 10;
+    return `${CN[tens]}十${ones ? CN[ones] : ''}`;
+  })();
+
+  return `${periodWord}${hourWord}点${minWord === '整' ? '' : minWord}`;
+}
+
 /** 把毫秒差说成人话：「刚」「4 分钟」「2 小时 11 分钟」「昨天」这种。 */
 export function humanGap(ms) {
   const n = Number(ms);
@@ -121,8 +180,15 @@ export function formatTimeContext(opts = {}) {
   const nowMs = (now instanceof Date ? now : new Date(now)).getTime();
 
   const lines = [];
-  lines.push(`【现在】${clock.date} ${clock.weekday} ${clock.clock}${tz ? `（${tz}）` : ''}`);
+  // 【现在】：24 小时制 + 口语读法并存。
+  // 保留 24 小时制是因为告警/日志/跨设备对照要好认；加口语读法是因为她**开口时用的是
+  // 口语**，而"16:05 → 下午四点零五"这一步以前要她自己算，算错过（见 spokenClock 注释）。
+  const spoken = spokenClock(now);
+  lines.push(`【现在】${clock.date} ${clock.weekday} ${clock.clock}（${spoken}）${tz ? `（${tz}）` : ''}`);
   lines.push(`【时段】${clock.period.label}`);
+  // 单独一行强调"说出口就用这个读法"：模型对紧跟在数字后面的括号容易当成附注忽略，
+  // 单独一行更像一条可照抄的素材。
+  lines.push(`【口语】现在开口要说「${spoken}」，别把 ${clock.clock} 读成别的钟点；说「几点/多少分」一律照这个来。`);
 
   // 时间感提示：只给"可以自然提起"的素材，不说"你应该说"。
   const cues = [];

@@ -139,9 +139,14 @@ console.log('## 群图库接入（src/media-lib.js）');
   // 群图库管理面必须与 AI 面隔离：带 agent token 的调用要被 403 挡住
   ok(bridge.includes("url.pathname === '/api/photos' || url.pathname.startsWith('/api/photos/')"),
     'bridge 把 /api/photos* 划为控制台专用（AI 403）');
-  // 提示词注入：photoLine 必须真的拼进 base
+  // 提示词注入：photoLine 必须真的拼进唤醒提示词
+  // ⚠️ 2026-11-10 增量唤醒重构后，逐字不变的段（角色/身份/令牌/表情包/群图库）挪进了
+  //    `fixedBase`，`base` 只负责拼变化的段 —— 所以不能再断言 `const base = ...photoLine`，
+  //    要断言「photoLine 进了 fixedBase，且 base 用得上 fixedBase」，否则群图库会在增量模式下丢。
   ok(bridge.includes('photoLine'), 'bridge 有 photoLine 注入变量');
-  ok(/const base = .*photoLine/.test(bridge), 'photoLine 已拼进唤醒提示词 base');
+  ok(/const fixedBase = .*photoLine/.test(bridge), 'photoLine 已拼进固定段 fixedBase');
+  ok(/const base = \(useIncremental \? '' : fixedBase\)/.test(bridge),
+    'base 在非增量时必须用上 fixedBase（否则群图库那一段不会被发出去）');
   // 收录必须发生在静默/暂停的早退之前（否则她睡着时群里发的好图就丢了）
   // ⚠️ 用带 `!isOwner` 的整句来定位，别只搜 "roleState.mode === 'silent'" ——
   //    那个片段在别处（isSilentFor 之类的辅助函数）也出现过一次，indexOf 会命中更早的那处。

@@ -694,6 +694,42 @@ if (-not (Test-Path $rollover)) {
     }
 }
 
+# ---------- 7b. DSH 图片仓清理（每天最多一次，删 90 天前的） ----------
+# DSH 自己的 attachments/v1/objects 只写不删（包 README 原话 "Stored images are
+# never deleted automatically"）。2026-11-07 实测 21 天攒了 335MB、平均 16MB/天，
+# 一年就是 5.7GB。这里每天醒一次，只删超过 90 天的（宽松到几乎不会误伤）。
+#
+# 为什么挂在一键启动里而不是计划任务：计划任务需要管理员权限，
+# 而这个脚本本来就是 "双击一下就好了"的东西。用和记忆守护一样的
+# "每半小时醒一次 + 看日志里最后一次是哪天"方式补作，不依赖定时器一直跑。
+Say ''
+$sweepBat = Join-Path $BridgeDir ('..' + [char]92 + 'tools' + [char]92 + 'cleanup-attachments.bat')
+if (-not (Test-Path $sweepBat)) {
+    Say '  [7b] 找不到 tools\cleanup-attachments.bat，跳过图片仓清理（不影响聊天）' 'DarkGray'
+} else {
+    $sweepLog = Join-Path $BridgeDir '..\cleanup-attachments.log'
+    $lastSweep = $null
+    if (Test-Path $sweepLog) {
+        try {
+            $tail = Get-Content $sweepLog -Tail 1 -ErrorAction Stop
+            if ($tail -match '(\d{4}/\d{1,2}/\d{1,2})') { $lastSweep = [datetime]$matches[1] }
+        } catch { }
+    }
+    $needSweep = $true
+    if ($lastSweep -and ((Get-Date) - $lastSweep).TotalDays -lt 1) { $needSweep = $false }
+    if ($needSweep) {
+        Say '  [7b] 清一次 DSH 图片仓（90 天前的，后台跑）...' 'Yellow'
+        try {
+            Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', "`"$sweepBat`"") `
+                -WorkingDirectory (Join-Path $BridgeDir '..') -WindowStyle Hidden | Out-Null
+        } catch {
+            Say ("  [!] 图片仓清理启动失败：{0}" -f $_.Exception.Message) 'Yellow'
+        }
+    } else {
+        Say ("  [7b] DSH 图片仓今天已清过（{0:yyyy-MM-dd}）" -f $lastSweep) 'Green'
+    }
+}
+
 # ---------- 8. 身体（ESP32-S3 小板：她的耳朵和嘴） ----------
 # 板子不在线就跳过 —— 一键启动不该因为"今天没接板子"而报错。
 # 探活走 MQTT：板子每 5 秒往 <base>/state 发一条心跳。

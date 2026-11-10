@@ -200,7 +200,13 @@ export const inject = ['tools']
  *   ③ 等于把插件装载权交出去 ⇒ 任意代码执行：
  *      · `plugin_manager`（安装/卸载/启停插件，内部会 spawn pnpm）
  *   ④ 无人值守的自我调度（`dsh-schedule`，0.2.0 起是可选 bundle）：
- *      · `schedule_create` / `schedule_list` / `schedule_update` / `schedule_delete`
+ *      · `schedule_create` / `schedule_list` / `schedule_edit` / `schedule_view`
+ *
+ *      ⚠️ 2026-11-08 修正：早先这里写的是 `schedule_update` / `schedule_delete`，
+ *      那是 DSH 0.2.0-rc.2 的工具面。之后的版本改成了 `schedule_edit` / `schedule_view`
+ *      （删除走 `schedule_edit` 的 `action: "delete"`），而名单没跟上 ——
+ *      结果两个已不存在的名字让 restrict 抛错被吞掉，而**真正存在的
+ *      `schedule_edit` / `schedule_view` 一个都没挡**，这条规则等于没生效。
  *
  * 2026-10-26 针对 DSH 0.2.1-rc.2 重新对账（本机实测，`state/tool-restrict.log`
  * 的 known global tools 里**确实**出现了 `working_directory`）。0.2.1 把若干能力
@@ -257,7 +263,7 @@ const LOCAL_EXECUTION_TOOLS = [
   //   ③ 插件装载权（= 任意代码执行）
   'plugin_manager',
   //   ④ 无人值守的自我调度
-  'schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete',
+  'schedule_create', 'schedule_list', 'schedule_edit', 'schedule_view',
   // 0.2.1 新增对账（见上方长注释）：
   //   ① 全局层默认挂载 ⇒ 真的会进仿真会话
   'working_directory',

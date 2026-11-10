@@ -87,9 +87,11 @@ test('本地执行类工具仍然全拒（没顺手放开）', () => {
   }
 });
 
-test('手机工具仍然受申请闸门约束（没被这次改动顺带放开）', () => {
+test('手机工具仍然三类会话全拒（没被这次改动顺带放开）', () => {
+  // 申请闸门 2026-11-06 已下线、手机工具整套也不再挂载，但这道拒绝必须留着：
+  // 它是"以后有人把 mcp__phone__ 加回白名单"时的唯一绊线。
   for (const kind of ALL) {
-    assert.ok(typeof v('mcp__phone__phone_screenshot', kind) === 'string', '手机工具必须仍然需要授权');
+    assert.ok(typeof v('mcp__phone__phone_screenshot', kind) === 'string', '手机工具在所有会话都必须被拒');
   }
 });
 

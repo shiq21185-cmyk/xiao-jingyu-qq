@@ -10,13 +10,13 @@
 >
 > 🎛️ **专项控制台**（主动找人 / 语音 / 工具开关 / 约定，端口 `3101`）是独立进程，根目录 `专项控制台.bat` 或 `npm run extra-console`。
 >
-> 📋 每个版本改了什么见 **[CHANGELOG.md](CHANGELOG.md)**；本次完整说明见 **[docs/releases/v0.2.1-r1.md](docs/releases/v0.2.1-r1.md)**；按天的开发流水见 **[DEVLOG.md](DEVLOG.md)**。
+> 📋 每个版本改了什么见 **[CHANGELOG.md](CHANGELOG.md)**；本次完整说明见 **[docs/releases/v0.2.2-r1.md](docs/releases/v0.2.2-r1.md)**；按天的开发流水见 **[DEVLOG.md](DEVLOG.md)**。
 >
 > 🚚 **换一台机器部署**（带人格 / 记忆 / 日记 / 收藏表情一起搬）见 **[DEPLOY.md](DEPLOY.md)**：克隆后跑一次 `pwsh -File launcher\install.ps1`，再按里面的手动步骤开 SnowLuma。
 
 把 QQ 消息接入 DSH agent：QQ 好友/群发来的消息会变成 DSH 会话里的用户消息，agent 的回复（含提问、工具审批）会发回 QQ。
 
-> ⚠️ **当前版本 `v0.2.1-r1`，适配 DSH 0.2.1-rc.2**（本机实测版本；`npm run verify:adaptation`）。
+> ⚠️ **当前版本 `v0.2.2-r1`，适配 DSH 0.2.2-rc.1**（本机实测版本；`npm run verify:adaptation`）。
 > 鉴权用 `~/.dsh` 里持久化的浏览器会话签名密钥**离线铸造 Cookie** —— DSH 0.1.7 起进程启动 token
 > 只存在于内存、不再落盘，旧版「从 guard 日志里读 token」的方式已失效。agent preset 是 DSH 0.1.7 起的
 > `@deepseek-ai/dsh-agent-preset` Cordis 行（`~/.dsh/.agent-presets/` 目录机制已废）。协议代次
@@ -304,8 +304,9 @@ qq-bridge/
   state/                # 运行时数据（不入库）
 ```
 
-> 🎤 **独立的「发语音」工具不在这里**：它是仓库上一级的 [`../voice-tool/`](../voice-tool/)（`voice-cli.mjs` /
-> `voice-gui.mjs` / `public/voice.html` / `发语音.cmd`）。图形界面双击上一级的「发语音-图形界面.cmd」。
+> 🎤 **独立的「发语音」工具不在这里**：它是**另一个仓库/目录**（部署时放在本仓库同级，目录名 `voice-tool`，
+> 内含 `voice-cli.mjs` / `voice-gui.mjs` / `public/voice.html` / `发语音.cmd`），不在本仓库内、本仓库也没有它的
+> 链接目标。图形界面双击同级的「发语音-图形界面.cmd」。
 > 它只依赖 SnowLuma，共享内核仍由本仓库 `src/voice-core.js` / `src/snowluma-conn.js` 提供（单一实现）。
 >
 > ```bash

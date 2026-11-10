@@ -79,15 +79,15 @@ ok('白名单写入（含测试群）', r.body.ok === true && (r.body.allow.grou
 r = await api('/api/whitelist', 'POST', { allow: origAllow, deny: { private: [], groups: [] } });
 ok('白名单恢复原值', r.body.ok === true && sameIds(r.body.allow.groups, origAllow.groups) && sameIds(r.body.allow.private, origAllow.private), JSON.stringify(r.body.allow));
 
-// 8. 测试发送到机器人测试群（真实发送）
-// 先把测试群临时加入白名单：这样既能验证白名单放行，也能验证 /api/test-send 真的走到网关。
-// 若 SnowLuma 未启动，发送会失败——这属于环境问题（不是控制台回归），按「已过白名单校验」计为通过。
+// 8. 测试发送（dry-run，不真的发出去）
+// 历史教训（2026-11-08）：这里原本临时把占位群号 123456789 加进白名单并**真实发送**，
+// 网关返回 result=110「你已被移出该群，请重新加群」—— 自检脚本往不存在的群里丢消息。
+// /api/test-send 现在默认 dry-run：白名单/模式/敏感词照查，但不碰网关。
+// 要验证真实发送请手工调接口并显式传 { dryRun: false }，不要放进自检。
 const withTestGroup = [...new Set([...(origAllow.groups || []).map(String), '123456789'])];
 await api('/api/whitelist', 'POST', { allow: { private: origAllow.private || [], groups: withTestGroup }, deny: { private: [], groups: [] } });
 r = await api('/api/test-send', 'POST', { kind: 'group', id: '123456789', message: '【控制台测试】新控制台功能验证成功 ✅' });
-const snowlumaDown = typeof r.body.error === 'string' && !/白名单/.test(r.body.error);
-ok('测试发送群消息', r.body.ok === true || snowlumaDown,
-  r.body.ok === true ? JSON.stringify(r.body) : `SnowLuma 不可达（非白名单拦截）：${r.body.error}`);
+ok('测试发送群消息（dry-run 放行，未真实发送）', r.body.ok === true && r.body.dryRun === true, JSON.stringify(r.body));
 // 还原白名单（去掉测试群）
 await api('/api/whitelist', 'POST', { allow: origAllow, deny: { private: [], groups: [] } });
 

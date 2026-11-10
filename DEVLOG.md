@@ -40,6 +40,128 @@
 
 ---
 
+## 2026-11-09 周日
+**做了什么**
+
+- `src/dsh-client.js` 的 `session/follow` 请求体补 `activate: true`（对齐上游 `v0.2.2-rc1` 的同名改动）。
+- 版本号升到 `0.2.2-r1`：`package.json` / `package-lock.json` / 三个 MCP serverInfo
+  （`mcp-snowluma-safe`、`mcp-host-server`、`mcp-web-search-safe`）。
+- `scripts/verify-dsh-021-adaptation.mjs` 的「插件版本必须等于主包」改成「插件版本是合法 semver」。
+- 新增 `docs/releases/v0.2.2-r1.md`；`CHANGELOG.md` 加一行 + 摘要段；`README.md` 版本声明与链接同步。
+
+**为什么**
+
+- DSH 0.2.1-rc.3 起 `session/follow` 默认不再激活冷会话（只读历史、不 promote Agent）。
+  桥接一直没发 `activate`，于是 **DSH 重启后带 pending inbox 的冷会话永远不跑**。
+  2026-11-08 晚撞过一次：网关被杀后重启，桥接 22:41:19 重连成功、`qq_status` online、
+  昵称都读到了，但会话里的待办一直没恢复执行 —— 表现就是「她不理人」。
+- 版本号必须动，否则 `verify:adaptation` 的版本身份对账与新协议语义对不上。
+
+**踩坑**
+
+- 一开始把 `plugins/qq-mode-console`、`plugins/qq-agent-presets`、`src/mcp-body.js`、
+  `src/mcp-games.js` 的版本号也一起改了，**主人当场纠正**：只更新 qq 桥接的号，别动插件。
+  已全部回退。教训：这两个插件是通过 Junction 链进 `~/.dsh/plugins/` 的**独立分发包**，
+  有自己的 npm 版本线（npm 上到 `1.1.2`），不是桥接的一部分。
+- 回退后 `verify:adaptation` 立刻红了 1 条：「qq-mode-console 插件版本与主包一致」。
+  这条断言本身就假设了「插件跟主包同号」—— 在分叉出去的线上不成立。
+  改成合法 semver 校验后 **77 通过 / 0 失败**。
+
+**验证**
+
+- `node scripts/verify-dsh-021-adaptation.mjs` → 77/0（改动前 76/1）。
+- `node --check src/dsh-client.js` → 语法正确。
+- 上游核对：`https://github.com/Derpyu520/qq-bridge` 的 `v0.2.2-rc1`（2026-11-06）
+  相对本地基点领先 **79 个提交 / 109 个文件**，其中唯一会直接咬到本机的是 `activate`。
+  另两处（取消状态码 `ABORTED`、守卫补 `apply_patch`）执行期已有兜底，未并入。
+
+**留给明天**
+
+- 注册期守卫仍空转：`~/.dsh/logs/desktop-next.log` 有 190 行
+  `tools.restrict() names unknown global tool`。DSH 全局层只有 9 个工具，`restrict()` 对
+  不在全局层的名字直接抛错被吞。**执行期 `verdictFor()` 是真正边界，安全上没漏洞**，
+  但这条回归网目前是空的。要修得先想清楚「是只 restrict 日志里见过的名字（清噪音、
+  但削弱未来回归网），还是等 DSH 把工具注册进全局层」。
+- `launcher/launch-all.ps1` 的 5099 端口判断有时序竞争：网关正在退出时 `Test-TcpPort 5099`
+  仍返回 true → 跳过启动 → 6 秒后网关没了。建议加一次复查（隔 2 秒再测一次）。
+
+---
+
+## 2026-11-08 周六
+**做了什么**
+
+- `src/bridge.js` 的 `/api/socialV2/wait`：`purpose="messages"` 的基线从 `lastUnreadSeq`
+  改成 `readThroughSeqV2(st)`（`historyEnabled ? readThroughSeqV2(st) : requestSeq`）。
+  历史工具全关时仍退回 `lastUnreadSeq`，避免关掉的缓冲经等待泄漏出去。
+  同时把「等待开始时已有的未读」改成立刻返回，不再耗掉 `timeoutMs`。
+- `scripts/test-reply-wait.mjs` 补 2 条回归：已有未读要立刻交付、全部已读仍等满预算。
+- `scripts/test-token-economy.mjs` 4 条「在途期间权限被收回」的用例补 `await request('unread')`
+  —— 不先消费未读，等待会立刻返回，就测不到在途了。
+
+**为什么**
+
+- 2026-11-08 19:53:48 她回完一句后调用 `qq_wait_for_messages(purpose="messages", timeoutMs=300000)`,
+  而主人 19:54:08 / 19:54:18 的两句话是轮询 19:54:22 **之前**就到的。
+  旧实现拿 `lastUnreadSeq` 当基线，这两条「已躺在缓冲里、她根本没看过」的消息永远不算到达,
+  于是她白等满 300 秒（`state/tool-calls.jsonl` 11:54:22 → 11:59:22）才去读未读，
+  在她看来就是"我说了话她不回"。
+- 只有 `reply` 用途用了 `readThroughSeq`。同一个函数里两种用途用两套基线，迟早踩这种坑。
+
+**踩坑**
+
+- 先想只在 messages 分支判断「已有未读就立即返回」，但仍用 `lastUnreadSeq` 当基线 ——
+  那样只是把等待变成空转，`lateMessages` 依旧算不出来。必须同时换基线。
+- 改完 `test-token-economy` 立刻红了 4 条。原因不是回归，而是这 4 条用例的**前提**没了：
+  它们先 append 一条未读、再发起等待、60ms 后改权限，靠的就是"等待会挂住"。
+  改法是在这些用例里先 `request('unread')` 把未读消费掉，让等待真的进入在途。
+- `scripts/test-audit.mjs` 57/58，唯一失败是 `test-preset-local-tools.mjs`：
+  `schedule_update` / `schedule_delete` 在本机 DSH 工具面里找不到。与本轮改动无关
+  （只动了 wait 基线 + 测试），也没有动守卫名单。
+
+**验证**
+
+- `node scripts/test-reply-wait.mjs` → 12/12
+- `node scripts/test-token-economy.mjs` → 36/36
+- `node scripts/test-qq-model-view.mjs` → 8/8
+- `node scripts/test-audit.mjs` → 57/58（仅上面那条与本轮无关的 preset 名单）
+- `node --check src/bridge.js` 通过
+
+**留给明天**
+
+- `test-preset-local-tools.mjs` 那两条 `schedule_*`：要么本机 DSH 确实删了这个工具、名单该删，
+  要么是版本对账漏了。不在这轮改，因为动名单会影响 QQ 侧的工具守卫。
+- 桥接进程尚未重启：`src/bridge.js` 的改动要等下次 `restart.bat` 才生效。
+
+---
+
+**追加（同日，第二次排查）**
+
+- **`schedule_update` / `schedule_delete` 不是"名单里多两个名字"，是守卫真的漏了。**
+  DSH 现在注册的是 `schedule_create` / `schedule_list` / `schedule_edit` / `schedule_view`。
+  旧名单里的 `schedule_update` / `schedule_delete` 已不存在 ⇒ `ctx.tools.restrict()` 抛错，
+  被 `apply()` 里那个 `try/catch` 吞掉（只打一行 log）⇒ **静默 no-op**；
+  而真正存在的 `schedule_edit`（带 `action: "delete"`，能删任务）/ `schedule_view`
+  **一个都没被挡**。也就是说「无人值守的自我调度」这条规则其实一直没生效。
+- 三处名单必须同步改，否则 verify 与测试会互相打架：
+  `plugins/qq-agent-presets/qq-tool-restrict.mjs`（权威）、
+  `scripts/verify-dsh-021-adaptation.mjs` 的 `GUARD_020_NAMES`、
+  `scripts/test-preset-local-tools.mjs` 的清单副本。
+- `scripts/verify-dsh-021-adaptation.mjs` 另摘掉 `mcp-games`：`scripts/setup-dsh.mjs:127`
+  记着 2026-11-06 主人已要求停止挂载（`src/mcp-games.js` 还在仓库里，只是不进 profile）。
+  原来那条断言等于**要求一个主人明确不要的东西必须挂着** —— 必然假红。
+
+**验证（追加）**
+- `node scripts/test-preset-local-tools.mjs` → 7/7（改前这条就是红的）
+- `node scripts/verify-dsh-021-adaptation.mjs` → 77 通过 / 0 失败（改前 76/1）
+- `node scripts/test-audit.mjs` → **58/58**（改前 57/58）
+- 复查守卫名单假名残留 = 0，`schedule_edit` / `schedule_view` 均已在名单内
+
+**注意**
+- `plugins/qq-agent-presets` 是软链到本仓库的，源码改动已同步；但 `restrict()`
+  只在 DSH **启动**时跑一次，所以**要重启 DSH 才真正生效**。桥接重启不影响这条。
+
+---
+
 ## 2026-10-30 周五
 
 **做了什么**

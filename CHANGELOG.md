@@ -8,7 +8,8 @@
 
 | 版本 | 日期 | DSH 基线 | 一句话 | 详情 |
 | --- | --- | --- | --- | --- |
-| **v0.2.1-r1** | 2026-10-26 | 0.2.1-rc.2 | 只做适配对账、不加功能：守卫补齐 0.2.1 工具面 + `dsh-ops` 一族（67→99）；修掉两处方向写反的 `{{cwd}}` 断言；**修好对账工具**（asar 布局支持，`verify:adaptation` 首次 77/0 全绿） | [releases/v0.2.1-r1.md](docs/releases/v0.2.1-r1.md) |
+| **v0.2.2-r1** | 2026-11-09 | 0.2.2-rc.1 | 只做 0.2.2 协议适配：`session/follow` 补 `activate: true`（修「DSH 重启后带 pending inbox 的冷会话不跑」）；插件版本断言放宽为合法 semver；主包版本身份统一到 `0.2.2-r1`（插件与 body/games 按主人要求不动） | [releases/v0.2.2-r1.md](docs/releases/v0.2.2-r1.md) |
+| v0.2.1-r1 | 2026-10-26 | 0.2.1-rc.2 | 只做适配对账、不加功能：守卫补齐 0.2.1 工具面 + `dsh-ops` 一族（67→99）；修掉两处方向写反的 `{{cwd}}` 断言；**修好对账工具**（asar 布局支持，`verify:adaptation` 首次 77/0 全绿） | [releases/v0.2.1-r1.md](docs/releases/v0.2.1-r1.md) |
 | v0.2.0-r5 | 2026-10-24 | 0.2.0-rc.2 | 记忆能翻旧账（`qq_memory_query` 归档检索、索引改为「随时间移除」、〔约定〕置顶）；语音被主人关掉时把话直接按文字发出去；拆掉从未被调用过的「她自己的图库」；群图库摘要去废话 272→190 字；12 处本机路径清出仓库 | [releases/v0.2.0-r5.md](docs/releases/v0.2.0-r5.md) |
 | v0.2.0-r4 | 2026-10-20 | 0.2.0-rc.2 | 她有了自己的时间：主动找人、自由时间、约定；「玩手机/刷B站」改成**当场申请**的硬闸门；独立专项控制台；群图库与她自己的图库；语音优先 | [releases/v0.2.0-r4.md](docs/releases/v0.2.0-r4.md) |
 | v0.2.0-r3 | 2026-10-17 | 0.2.0-rc.2 | 上游健康可观测（「QQ 注入失败」误诊）、SnowLuma 库升级、全新 clone 可移植性 | 提交 `fbb1a54` |
@@ -17,6 +18,47 @@
 | v0.1.7 | 2026-09 | 0.1.7-rc.2 | DSH 0.1.7-rc.2 适配、安全加固与全量缺陷修复 | — |
 | v0.1.5 | 2026-09 | 0.1.5-rc.1 | 移除 `start_snowluma` / `stop_snowluma`；演示视频改由 Release 附件托管 | — |
 | v0.1.0 | 2026-08 | 0.1.1-rc.2 | 首个可用版本（点号 endpoint 协议代次） | — |
+
+---
+
+## v0.2.2-r1（2026-11-09）摘要
+
+**只做 DSH 0.2.2 的协议适配，不加功能。** 改动 2 处代码 + 版本身份。完整说明见
+[docs/releases/v0.2.2-r1.md](docs/releases/v0.2.2-r1.md)。
+
+### `session/follow` 补 `activate: true`
+
+DSH 0.2.1-rc.3 起 `session/follow` 默认不再激活冷会话（只读历史、不 promote Agent）。
+桥接的 `sendOpen()` 缺这个字段 ⇒ **DSH 重启后，带 pending inbox 的冷会话永远不跑**，
+QQ 侧表现就是「桥接连上了、网关也活着、`qq_status` 是 online，但她就是不说话」。
+2026-11-08 晚撞过一次：网关重启后桥接 22:41:19 重连成功、昵称都读到了，待办却没恢复。
+
+对齐上游 `v0.2.2-rc1` 的 `src/dsh-client.js:759`。
+
+### 插件版本断言放宽
+
+原断言「`qq-mode-console` 插件版本必须等于主包版本」在两个包**本来就走不同版本线**时是错的：
+`plugins/qq-mode-console` 与 `plugins/qq-agent-presets` 是独立分发的 DSH 插件包
+（npm 上到 `1.1.2`，通过 Junction 链接进 `~/.dsh/plugins/`）。改成只要求合法 semver。
+
+### 版本身份
+
+主包统一到 `0.2.2-r1`：`package.json` / `package-lock.json`（顶层 + `packages[""]`）/
+三个 MCP serverInfo（`mcp-snowluma-safe` / `mcp-host-server` / `mcp-web-search-safe`）。
+
+**刻意不动**：两个插件包（保持 `0.2.1-r1`）、`src/mcp-body.js`（`0.1.0`）、
+`src/mcp-games.js`（`0.2.0`）—— 它们是独立分发的包，主人 2026-11-09 明确要求只改桥接自己的号。
+
+### 未并入（等真出问题再说）
+
+- 取消状态码 `ABORTED`：只在 DSH 主动取消执行时命中，本机未复现。
+- 守卫名单补 `apply_patch`：执行期 `verdictFor()` 已能拦。
+
+### 验证
+
+```
+verify:adaptation                 77 通过 / 0 失败
+```
 
 ---
 

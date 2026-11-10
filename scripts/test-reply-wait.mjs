@@ -133,6 +133,38 @@ test('ordinary and omitted purpose keep waiting for future messages', () => fixt
   }
 }));
 
+test('messages purpose hands back unread messages that arrived before the wait started', () => fixture(async ({ st, request, append }) => {
+  // 2026-11-08 主人报的现象：19:53:48 她回完一句后调用 wait(messages, 300s)，
+  // 紧接着 19:54:08 / 19:54:18 主人的两句话到了，而轮询是 19:54:22 才发的。
+  // 旧实现用 lastUnreadSeq 当基线，于是这两条**已经躺在缓冲里**、她根本没看过的消息
+  // 不算“到达”，她白等满 300 秒（state/tool-calls.jsonl 11:54:22 → 11:59:22）才去读未读。
+  append('还没被看过的第一条');
+  append('还没被看过的第二条');
+  assert.equal(st.lastUnreadSeq, 2);
+  assert.equal(st.unread.length, 2);
+  st.lastIncomingAt = Date.now() - 10000; // 静默窗口早就满了
+  const started = Date.now();
+  const result = await request('wait', { purpose: 'messages', timeoutMs: 5000, quietMs: 100 });
+  assert.equal(result.status, 200);
+  assert.ok(Date.now() - started < 1000, `已有未读却等了 ${result.data.waitedMs}ms`);
+  assert.equal(result.data.arrived, true);
+  assert.equal(result.data.timeout, false);
+  assert.deepEqual(result.data.newMessages.map(m => m.seq), [1, 2]);
+  assert.equal(result.data.readThroughSeq, 2);
+  assert.equal(st.unread.length, 2, '下达回消息不消耗未读，只是把它交出去');
+}));
+
+test('messages purpose still waits out the budget when everything was already seen', () => fixture(async ({ st, request, append }) => {
+  append('已经看过的');
+  await request('unread');
+  st.lastIncomingAt = Date.now() - 10000;
+  const result = await request('wait', { purpose: 'messages', timeoutMs: 600, quietMs: 100 });
+  assert.ok(result.data.waitedMs >= 600, `等待提前返回了 ${result.data.waitedMs}ms`);
+  assert.equal(result.data.timeout, true);
+  assert.equal(result.data.arrived, false);
+  assert.deepEqual(result.data.newMessages, []);
+}));
+
 test('reply mode rejects a session permission change during its remaining quiet window', () => fixture(async ({ h, st, request, append }) => {
   append('still fresh');
   const timer = setTimeout(() => h.setMode('chat'), 100);

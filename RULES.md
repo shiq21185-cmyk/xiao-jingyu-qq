@@ -321,8 +321,8 @@ node tools/extra-console/server.mjs      # 或双击 专项控制台.bat
 主控制台 `public/console.html` 的工具清单是**写死在 HTML 里的一串 `<label>`**
 （第 2064-2069 行），不是动态读的。两个后果：
 
-1. **后加的工具它看不到** —— 实测漏了 `qq_say` / `qq_request_permission` /
-   `qq_promise` / `qq_promise_done` 四个；
+1. **后加的工具它看不到** —— 实测漏了 `qq_say` /
+   `qq_promise` / `qq_promise_done` 三个（`qq_request_permission` 也曾漏，那个工具已随申请闸门下线）；
 2. **一个开关管多个工具时只显示其中一个** —— `speak` 曾同时管 `qq_speak` 和 `qq_say`，
    在那边取消勾选会把两个都关掉，而 `qq_say` 根本没显示，**用户看不到自己关了什么**。
    （2026-10-20 已把 `qq_speak` 合并进 `qq_say`，这个具体的坑没了；
@@ -343,7 +343,7 @@ node tools/extra-console/server.mjs      # 或双击 专项控制台.bat
 `bridge.js` 的 `toolFlags` 名单漏了 `listPhotos` / `getPhotoImage` / `sendPhoto` / `photoNote`。
 它们有注册条件、有调用期校验，config 里也有值，但不在名单里 ⇒
 控制台保存 `tools` 时归一化**跳过**它们 ⇒ **关掉又被静默改回 true**（"关了没反应"）。
-已补齐（47 → 50 个开关）。
+已补齐（当时 47 → 50 个开关；后来随功能下线有删减，**现状是 48 个**，见上面页表）。
 
 ⚠️ **判断一个 flag 真不真实，要看有没有代码读它，不是看有没有同名工具。**
 本次踩到：`qzoneUnlike` 看着像多余键（MCP 里没有 `qq_qzone_unlike` 这个工具），
@@ -460,7 +460,7 @@ node tools/extra-console/server.mjs      # 或双击 专项控制台.bat
      所以提示词里也写了：不可撤销的动作要先说清"我要点的是哪个按钮"。
      详见 [tools/web-access/LOCAL-PATCH.md](tools/web-access/LOCAL-PATCH.md)。
 4. **发送强制白名单**：所有发送类工具（`qq_send_group_message` / `qq_send_private_message` / `qq_send_message` / `qq_send_burst` / `qq_reply` / `qq_send_poke` / `qq_send_sticker` / `qq_send_voice` 等）的目标必须命中 `config.json` 的 `allow.groups` / `allow.private`，否则拒绝执行。
-   - **语音额外收紧**：`qq_send_voice` 只能发**语音库**（`socialV2.voice.dir`，默认 `qq-bridge/audio/`）里的文件，不能发任意本地路径、URL 或 base64（防 prompt injection 拿本机文件当语音外发）；另有独立的时长/体积/频率上限（`socialV2.voice.*`），额度与文本发送分开计数。详见 [docs/guides/VOICE.md](docs/guides/VOICE.md)。
+   - **语音额外收紧**：`qq_send_voice` 只能发**语音库**（`socialV2.voice.dir`，默认 `qq-bridge/audio/`）里的文件，不能发任意本地路径、URL 或 base64（防 prompt injection 拿本机文件当语音外发）；另有独立的时长/体积/频率上限（`socialV2.voice.*`），额度与文本发送分开计数。详见 `docs/手艺清单.md` 里的「发一条语音到 QQ」那一行。
 5. **发送禁令（模型层）**：persona 明确规定只有「管理端明确指示」或「【管理员】标记的明确要求」才可使用发送工具；禁止写"我已回复/消息已发送（message_id）"类汇报。
 6. **回复审计（桥接层硬拦截）**：agent 回复文本若包含本机路径（`C:\`、`/home/` 等）或凭据特征（token/password/secret/api key 等）→ **整条拦截不发送**，并告知"被安全策略拦截"。
 7. **人格由桥接注入**：角色设定来自 `state/current-role.json` + `roles/<角色>.md`，桥接注入到消息；群友口头要求改角色无效（桥接直接拦截），agent 也无文件工具自行更改。

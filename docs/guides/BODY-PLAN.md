@@ -117,16 +117,15 @@ device → bridge   ack     {id, ok, err?, actual_ms}
 2. **让 DSH 拉起它**：`scripts/setup-dsh.mjs:126` 的 `MANAGED_MCP_IDS` 加 `'mcp-body'`，
    `mcpEntries()`（`:128` 起）加一条 `{ serverName: 'body', script: .../mcp-body.js }`。
    **不加这一步 DSH 根本不会 spawn 它**，而且那段区块是整体重写的，别手改 `cordis.patch.yml`。
-3. **授权档位**：`src/permit-lib.js:32` 的 `PERMIT_SCOPES` 加 `body`，
-   建议 `defaultTtlMs` 5 分钟 / `maxTtlMs` 30 分钟 —— 比手机（30/120 分钟）更短，
-   因为她动的是**屋里的实物**，不是屏幕上的像素。
+3. **授权档位**：⚠️ 原计划的 `src/permit-lib.js:32` `PERMIT_SCOPES` 加 `body` **已不可行** ——
+   `src/permit-lib.js` 与整个申请闸门 2026-11-06 下线。要动身体得另造授权机制
+   （建议沿用"只认管理员私聊 + 带到期时间"的形状，但落在新的文件里）。
 4. **守卫**（`plugins/qq-agent-presets/qq-tool-restrict.mjs`）：
-   - 新 `BODY_TOOLS`，加进 `:347` 的 `OWNER_PRIVATE_ONLY_DSH_TOOLS`；
+   - 新 `BODY_TOOLS`，加进 `OWNER_PRIVATE_ONLY_DSH_TOOLS`；
      **群里连 `body_state` 都不给** —— 电量、屋里有没有动静属于账号面信息，
-     和 `:340` 的 `GAME_TOOLS` 拒绝群聊是同一条理由；
-   - `:380` 的 `PERMIT_TOOL_SCOPES` 里把 `mcp__body__body_act` 映射到 `'body'`；
-   - `scripts/test-permit-gate.mjs` 是**双向核对**（桥接 `PERMIT_SCOPES` ↔ 守卫 `PERMIT_TOOL_SCOPES`），
-     两边不同时改，测试会红。
+     和 `GAME_TOOLS` 拒绝群聊是同一条理由；
+   - ⚠️ 原计划的 `PERMIT_TOOL_SCOPES` 映射已随闸门删除，不再需要改；
+   - ~~`scripts/test-permit-gate.mjs` 双向核对~~ 该测试已删除。
 5. **配置**：`config.json` 加 `body` 段（`wsUrl` / `token` / `mapping` / `allowMotion`）。
 6. **桥接事件映射**：见第 7 节 —— 这是最值钱的一步。
 
@@ -150,7 +149,9 @@ device → bridge   ack     {id, ok, err?, actual_ms}
 
 ## 8. 安全（照这个仓库既有的风格）
 
-- **动 = 申请。** 复用 `qq_request_permission` 的闸门，`scope` 加 `body`，与 `phone`/`bili` 并列。
+- **动 = 申请。** ⚠️ 原计划复用 `qq_request_permission` 闸门（`scope` 加 `body`，与 `phone`/`bili` 并列），
+  但**那道闸门与 `phone`/`bili` 一起在 2026-11-06 整体下线了**（见 [../../RULES.md](../../RULES.md) §3）。
+  身体若要动，得新造一道授权机制，别照着旧名字写。
   没授权时固件照常跑反射和待机，只是不接受 agent 的动作命令。
 - **物理急停**：外壳上一个实体按键（切断舵机电源），固件 watchdog 是第二道，拔电是第三道。
 - **麦克风是 ingress**：房间里的声音**算资料不算指令**——照 `roles/小鲸鱼.md` 第十三节网页那条规矩写。

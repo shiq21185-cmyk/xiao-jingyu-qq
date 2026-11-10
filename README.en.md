@@ -2,11 +2,11 @@
 
 > Connect QQ messages to DeepSeek Harness (DSH) agents: QQ friends/groups become DSH conversations, and agent replies (including questions and tool approvals) are sent back to QQ.
 
-> ⚠️ **Current release `v0.2.0-r5`, targets DSH 0.2.0-rc.2** (verified item by item on that version; run `npm run verify:adaptation`). It uses the persistent local signing key to **mint the session Cookie offline**, slash RPC endpoints and the `/api/remote.mux` event stream — a protocol generation introduced in DSH `0.1.2-alpha.1`, incompatible with the older dot-endpoint protocol. Reading the launch token out of the old guard logs has not worked since DSH 0.1.7 (the token is generated per process and never written to disk). Agent presets are `@deepseek-ai/dsh-agent-preset` Cordis rows since DSH 0.1.7 (the `~/.dsh/.agent-presets/` directory mechanism is gone). On **DSH `0.1.1-rc.2` or earlier**, use tag [`v0.1.0`](https://github.com/Derpyu520/qq-bridge/releases/tag/v0.1.0); for **DSH 0.1.5-rc.1** use [`v0.1.5`](https://github.com/Derpyu520/qq-bridge/releases/tag/v0.1.5); for **DSH 0.1.7-rc.2** use [`v0.1.7`](https://github.com/Derpyu520/qq-bridge/releases/tag/v0.1.7). The release-to-release summary lives in [`CHANGELOG.md`](CHANGELOG.md); the full notes for the current one are in [`docs/releases/v0.2.0-r5.md`](docs/releases/v0.2.0-r5.md).
+> ⚠️ **Current release `v0.2.2-r1`, targets DSH 0.2.2-rc.1** (verified item by item on that version; run `npm run verify:adaptation`). It uses the persistent local signing key to **mint the session Cookie offline**, slash RPC endpoints and the `/api/remote.mux` event stream — a protocol generation introduced in DSH `0.1.2-alpha.1`, incompatible with the older dot-endpoint protocol. Reading the launch token out of the old guard logs has not worked since DSH 0.1.7 (the token is generated per process and never written to disk). Agent presets are `@deepseek-ai/dsh-agent-preset` Cordis rows since DSH 0.1.7 (the `~/.dsh/.agent-presets/` directory mechanism is gone). On **DSH `0.1.1-rc.2` or earlier**, use tag [`v0.1.0`](https://github.com/Derpyu520/qq-bridge/releases/tag/v0.1.0); for **DSH 0.1.5-rc.1** use [`v0.1.5`](https://github.com/Derpyu520/qq-bridge/releases/tag/v0.1.5); for **DSH 0.1.7-rc.2** use [`v0.1.7`](https://github.com/Derpyu520/qq-bridge/releases/tag/v0.1.7). The release-to-release summary lives in [`CHANGELOG.md`](CHANGELOG.md); the full notes for the current one are in [`docs/releases/v0.2.2-r1.md`](docs/releases/v0.2.2-r1.md).
 >
 > The default branch `main` **is** this version — a plain `git clone` gets it, no branch switching needed.
 
-For the detailed Chinese guide, see **[docs/guides/PROJECT_GUIDE.md](docs/guides/PROJECT_GUIDE.md)**.
+For the detailed Chinese guide, see **[README.md](README.md)** (configuration in full) and **[docs/README.md](docs/README.md)** (documentation index).
 The documentation index (one line per doc, with "still current?" notes) is **[docs/README.md](docs/README.md)**;
 the repository/folder and script-naming conventions are in **[docs/FOLDER_MAP.md](docs/FOLDER_MAP.md)**.
 
@@ -109,7 +109,7 @@ qq-bridge/
   docs/
     README.md           # documentation index (one line per doc + "still current?" notes)
     FOLDER_MAP.md       # folder layout and scripts/ naming conventions
-    guides/             # user/operator facing: PROJECT_GUIDE, DSH_SETUP, VOICE, TOKEN_USAGE_CONSOLE, CONSOLE-UI-TESTING
+    guides/             # user/operator facing: START-HERE, DSH_SETUP, ADD-ENDPOINT, SECURITY_BASELINE, TOKEN_USAGE_CONSOLE, CONSOLE-UI-TESTING, DSH_02x_ADAPTATION
     design/             # design & planning docs
     research/           # investigation notes
     audits/             # review / optimisation reports
@@ -131,7 +131,7 @@ lives in the sibling folder **`../voice-tool/`** — it only needs SnowLuma, and
 
 ## Testing
 
-`npm run test:audit` runs isolated regression tests without production credentials, DSH, or QQ messages. The detailed audit is in [docs/audits/AUDIT_REPORT_2026-09-20.md](docs/audits/AUDIT_REPORT_2026-09-20.md) (Chinese); the 2026-09-18 one it superseded is archived in [docs/legacy/](docs/legacy/).
+`npm run test:audit` runs isolated regression tests without production credentials, DSH, or QQ messages. The security baseline is described in [docs/guides/SECURITY_BASELINE.md](docs/guides/SECURITY_BASELINE.md) (Chinese).
 
 After upgrading, legacy QQ session mappings without permission metadata are recreated once. Mode or preset changes also retire the old mapping and recreate the session on the next message; DSH history is retained.
 

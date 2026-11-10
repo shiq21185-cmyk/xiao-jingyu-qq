@@ -23,8 +23,8 @@ import yaml from 'js-yaml';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(__dirname, '..');
 
-/** 由桥接托管的两个 preset（顺序即 patch 层顺序）。 */
-export const PRESETS = ['qq-chat', 'qq-chat-v2'];
+/** 由桥接托管的 preset（顺序即 patch 层顺序）。 */
+export const PRESETS = ['qq-chat', 'qq-chat-v2', 'qq-owner-dsh'];
 
 /** preset 行 id：与 config.id（桥接解析的 preset 名）区分开，方便在 profile patch 里按行定位。 */
 export function presetRowId(name) {
@@ -45,6 +45,7 @@ export const GUARD_SPECIFIER = 'qq-agent-presets/qq-tool-restrict.mjs';
 /** 源里允许出现的相对行名 → 新机制下的等价引用。其它相对名一律报错（避免静默装不上）。 */
 const RELATIVE_ROW_REWRITES = new Map([
   ['./qq-tool-restrict.mjs', GUARD_SPECIFIER],
+  ['./qq-tool-restrict-owner.mjs', 'qq-agent-presets/qq-tool-restrict-owner.mjs'],
 ]);
 
 export const BUNDLE_DIR = path.join(REPO_ROOT, 'plugins', 'qq-agent-presets');

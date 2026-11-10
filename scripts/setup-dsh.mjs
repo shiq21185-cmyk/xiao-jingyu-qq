@@ -126,7 +126,7 @@ function yamlSingleQuote(s) {
 //
 // 2026-11-06：`mcp-games` 摘掉了（主人 m05483「玩手机和game…都不要了」）。
 // 注意这里是"从 profile 里不挂载"，不是删 `src/mcp-games.js` —— 那个文件还在，
-// `scripts/test-games-layer.mjs` 仍读它的源码断言四个工具的形状。
+// 只是没有测试钉它了（2026-11-10 删掉了 test-games-layer / test-games-runtime）。
 // 想恢复：把 id 加回这个数组、servers 表里那行取消注释即可，下次 setup 会重新挂上。
 const MANAGED_MCP_IDS = ['mcp-snowluma', 'mcp-snowluma-host', 'mcp-web-search-safe', 'mcp-body'];
 

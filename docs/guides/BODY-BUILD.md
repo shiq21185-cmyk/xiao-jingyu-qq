@@ -872,8 +872,10 @@ await server.connect(transport);
 
 | 文件 | 位置 | 改什么 |
 |---|---|---|
-| [`src/permit-lib.js:32`](../../src/permit-lib.js) | `PERMIT_SCOPES` | 加 `body` |
-| [`plugins/qq-agent-presets/qq-tool-restrict.mjs:380`](../../plugins/qq-agent-presets/qq-tool-restrict.mjs) | `PERMIT_TOOL_SCOPES` | 加 `['mcp__body__body_act', 'body']` |
+| ~~`src/permit-lib.js:32`~~ | `PERMIT_SCOPES` | ⚠️ **该文件与申请闸门 2026-11-06 已删除**，动作授权需另造机制 |
+
+> 现在身体只有三个工具（`body_status` / `body_photo` / `body_say`），
+> 都是只读/发声，**没有 `body_act`**，所以这套授权还没被用到。
 
 ```js
 body: {
@@ -934,9 +936,11 @@ agent 侧的 `body_act` 只负责**关键时刻主动做个大动作**（"过来
 
 | 命令 | 验什么 |
 |---|---|
-| `node scripts/test-permit-gate.mjs` | 桥接 `PERMIT_SCOPES` ↔ 守卫 `PERMIT_TOOL_SCOPES` **双向核对**。⚠️ [`scripts/test-permit-gate.mjs:92`](../../scripts/test-permit-gate.mjs) 硬编码了 `assert.deepEqual([...scopes].sort(), ['bili', 'phone'])`，加 `body` scope 会直接判红 —— 要同步改成 `['bili', 'body', 'phone']`（排序后） |
 | `node scripts/test-mcp-servers-stdio.mjs` | 以 stdio 拉起所有 MCP server，握手 + 列工具 |
-| `node scripts/test-games-layer.mjs` | 照它的结构写一份 `test-body-layer.mjs`（工具名白名单、不能进 SAFE_EXACT） |
+| `node scripts/test-tool-classification.mjs` | 工具面分类不变式（新工具默认对群聊开放，必须显式登记）—— 照它写身体层的登记 |
+
+> ⚠️ 原表的 `test-permit-gate.mjs` 与 `test-games-layer.mjs` **已删除**（2026-11-06 申请闸门下线、
+> 2026-11-10 清理无用测试）。身体若要动作授权，得新造机制，别照旧文件名写。
 
 ---
 

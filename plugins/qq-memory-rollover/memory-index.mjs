@@ -163,6 +163,54 @@ export const INDEX_PIN_MAX_ITEMS = 4;
 // 长了又变成变相常驻。两周之后要么兑现了、要么早该重新提了。
 export const INDEX_PIN_SOFT_DAYS = 14;
 
+/**
+ * ── 热条目层（2026-11-09 新增）─────────────────────────────────────────────
+ *
+ * 为什么要有这一层（实测数据支撑）：
+ *   155 条记忆里只有 18 条进索引（最近 3 天），137 条在归档区。
+ *   而被真正用起来的 48 条记忆 —— **48 条全部落在归档区**，一条都不在索引里。
+ *   也就是说：索引装的几乎只是流水账，最常被想起来的那些事反而看不见。
+ *
+ * 所以补一层"热条目"：按「被想起过几次 × 时间衰减」挑出最该常驻的几条，
+ * 跟约定置顶并列，**不改动**最近 3 天的时间窗规则。
+ *
+ * 打分公式抄 market 上 prime-memory 的带地板半衰期：
+ *     score = hits × max(PIN, 0.5^(天数/HALF_LIFE_DAYS))
+ * 关键是那个**地板**：一条好记忆放一年仍有一半分，不会因为老而彻底消失
+ * （没有地板的话，30 天前的记忆分数就趋近 0，等于又变回"只看最近"）。
+ *
+ * 为什么条数这么少（5 条）：预算只有 2061 字符，5 条 × 约 50 字符 = 250 字符。
+ * fish-memory 实测 6 条 / 800 字、lite-memory 3 卡 / 1200 字节，5 条在同量级。
+ */
+export const INDEX_HOT_MAX_ITEMS = 5;
+// 半衰期 30 天（与 fish-memory / prime-memory 一致的量级）
+export const INDEX_HOT_HALF_LIFE_DAYS = 30;
+// 衰减地板：再老也保留一半分数
+export const INDEX_HOT_FLOOR = 0.5;
+// 进入热条目层的最低门槛：至少要"被想起过" 2 次才算热。
+// 1 次的可能只是某轮误召回，不够格占据每轮都要付钱的常驻位。
+export const INDEX_HOT_MIN_HITS = 2;
+
+/**
+ * 热条目的**退出机制**（2026-11-09 补）。
+ *
+ * 为什么必须有它：第一版只有"进门"没有"出门" —— 一条记忆只要历史上被想起过 2 次，
+ * 就永远有资格竞争那 5 个常驻位。条数上限（5）确实挡住了"撑爆角色卡"，
+ * 但它挡住了另一件更该发生的事：**该沉下去的沉不下去**。
+ * 这与主人 2026-10-23 定的原则直接冲突：
+ *   「记忆就是要精简，也不是重点常驻，是随时间移除的」
+ *
+ * 所以补一条：多久没再被想起来，就退回归档。
+ * 45 天 = 一个半月。选它的理由：热条目的半衰期是 30 天，
+ * 45 天意味着"分数已经掉到地板上、而且连续一个半月没人再提" —— 
+ * 这时候它占着常驻位，挡的是别人。
+ *
+ * ⚠️ 退回归档**不是删除**：daily-memory.json 里一字不动，
+ * qq_memory_query 照样查得到，条件变了（又被想起）还能再浮上来。
+ */
+export const INDEX_HOT_STALE_DAYS = 45;
+
+
 // 相对时间：按条目自己那天的日期往后推，不按"今天"推。
 // 10-17 写的"明天接着玩"= 10-18 的约定，而不是今天+1。
 const PIN_RELATIVE_DAYS = [
@@ -387,6 +435,54 @@ export function selectIndexItems(mem, opts = {}) {
     recentRows = recentRows.filter((row) => !supersededBy.has(row));
   }
 
+  // ── 热条目层：把"最常被用起来、却掉出索引"的记忆捞回来（2026-11-09）──────
+  //
+  // 位置很重要：必须在「被取代过滤」**之后**。被取代的条目代表"曾经成立"，
+  // 不该因为历史上被想起过几次就重新占用常驻位 —— 那会让"板子还没做视觉"
+  // 和"视觉也接上了"再次同时出现在索引里，正是 2026-10-29 修掉的那个毛病。
+  //
+  // 打分：hits × max(FLOOR, 0.5^(天数/半衰期))
+  //   · hits 来自 bridge 写的 state/memory-hits.json（被想起来几次）
+  //   · 衰减带地板，老的记忆不会因为老而彻底归零
+  const hotRows = [];
+  const hotScores = new Map();
+  const hitsMap = (opts.recallHits && typeof opts.recallHits === 'object') ? opts.recallHits : {};
+  const hotRowKey = (row) => `${String(row.scope ?? '').trim()}|${String(row.date ?? '').trim()}|${String(row.text ?? '').trim()}`;
+  const alreadyShown = new Set(recentRows);
+  for (const row of flat) {
+    if (alreadyShown.has(row)) continue;          // 已经在最近 3 天里了
+    if (supersededBy.has(row)) continue;          // 被取代过的不回索引
+    if (row.inferred) continue;                   // 推断出来的不占常驻位（可能是错的）
+    const hit = hitsMap[hotRowKey(row)];
+    const times = Number(hit && hit.hits) || 0;
+    if (times < INDEX_HOT_MIN_HITS) continue;     // 只想起过 1 次的，多半是误召回
+    // 退出机制：多久没再被想起就退回归档（2026-11-09）。
+    // 没有 lastHit 的按"刚被想起过"处理 —— 旧的账本只有 hits 没有时间，
+    // 不能因为字段缺失就把一条真热记忆踢掉。
+    const lastHitMs = Number(hit && hit.lastHit);
+    if (Number.isFinite(lastHitMs) && lastHitMs > 0) {
+      const idleDays = (now.getTime() - lastHitMs) / 86400000;
+      if (idleDays > INDEX_HOT_STALE_DAYS) continue;
+    }
+    const ageDays = row.parsed
+      ? Math.max(0, (today.getTime() - row.parsed.getTime()) / 86400000)
+      : INDEX_HOT_HALF_LIFE_DAYS * 4;             // 日期坏了的按很老算
+    const decay = Math.max(INDEX_HOT_FLOOR, Math.pow(0.5, ageDays / INDEX_HOT_HALF_LIFE_DAYS));
+    hotRows.push(row);
+    hotScores.set(row, times * decay);
+  }
+  hotRows.sort((a, b) => (hotScores.get(b) || 0) - (hotScores.get(a) || 0));
+  const hotPicked = hotRows.slice(0, Math.max(0, Number(opts.hotMaxItems ?? INDEX_HOT_MAX_ITEMS)));
+  const hotSet = new Set(hotPicked);
+  if (hotPicked.length) {
+    // 接进来后重新按时间排序，索引整体保持"从旧到新"的阅读顺序
+    recentRows = [...recentRows, ...hotPicked].sort((a, b) => {
+      const ad = a.parsed ? a.parsed.getTime() : 0;
+      const bd = b.parsed ? b.parsed.getTime() : 0;
+      return ad - bd;
+    });
+  }
+
   // 移出索引的全部进归档（可检索）。归档数 = 索引里看不到的条数。
   // 遍历 flat（而不是 kept）：窗口外的、超出条数上限的，同样要能搜到。
   const shown = new Set(recentRows);
@@ -403,7 +499,11 @@ export function selectIndexItems(mem, opts = {}) {
   let lines = recentRows.map((r) => {
     const mark = pinnedSet.has(r) ? '〔约定〕' : '';
     const guess = r.inferred ? '~' : '';
-    return `- ${displayPrefix(r.date)}｜${scopeLabel(r.scope)}${mark}${guess}${r.text}`;
+    // 热条目标个〔常想起〕：不标的话她会以为这条也是"最近发生的"，
+    // 可能把两周前的事当成今天的接着说。标一下，读的人（她自己）就知道
+    // 这条之所以在这里，是因为**重要/常用**，不是因为新。
+    const hot = hotSet.has(r) ? '〔常想起〕' : '';
+    return `- ${displayPrefix(r.date)}｜${scopeLabel(r.scope)}${mark}${hot}${guess}${r.text}`;
   });
 
   // ── 字符预算：**从最旧砍**，直到塞进预算 ──────────────────────────────────
@@ -419,10 +519,14 @@ export function selectIndexItems(mem, opts = {}) {
   let total = lines.reduce((a, l) => a + l.length + 1, 0); // +1 = 换行
   const recount = () => lines.reduce((a, l) => a + l.length + 1, 0);
   while (lines.length > 0 && total > lineBudget) {
-    // 砍最旧一条，但**先砍普通的、后砍钉住的约定** ——
-    // 约定本来就少（最多 INDEX_PIN_MAX_ITEMS 条），砍掉一条就是丢一件事，
-    // 而普通旧记忆砍掉还有 qq_memory_query 能查回来。
-    let idx = recentRows.findIndex((r) => !pinnedSet.has(r));
+    // 砍最旧一条，优先级：普通旧记忆 > 热条目 > 约定。
+    // 为什么热条目排在"普通"之后、约定之前：
+    //   · 普通旧记忆砍掉还有 qq_memory_query 能查回来，且它本来就快掉出窗口了；
+    //   · 热条目之所以热，正是因为它"想不起来就断了"（48 条被用起来的全在归档区），
+    //     砍它等于把这一层刚补的价值立刻丢掉；
+    //   · 约定是"未来的事"，丢了就是失约，永远最后动。
+    let idx = recentRows.findIndex((r) => !pinnedSet.has(r) && !hotSet.has(r));
+    if (idx < 0) idx = recentRows.findIndex((r) => !pinnedSet.has(r)); // 只剩热条目和约定
     if (idx < 0) idx = 0; // 只剩约定行时才动它们
     lines = lines.filter((_, i) => i !== idx);
     const dropped = recentRows.splice(idx, 1)[0];
@@ -456,8 +560,11 @@ export function selectIndexItems(mem, opts = {}) {
     keywords: extractKeywords(archived.map((r) => r.text)),
     // 索引里实际还留着几天（预算砍完之后）。staleFallback 时可能是 1 天。
     // ⚠️ 只数**普通**记忆的天数：被钉住的约定可能来自两周前，
-    //    算进去会把标题写成「最近 5 天」，读者会以为整块都是这五天的。
-    keptDays: new Set(recentRows.filter((r) => !pinnedSet.has(r)).map((r) => r.date)).size,
+    //    热条目更是可能来自一个月前（那正是它存在的意义），
+    //    算进去会把标题写成「最近 20 天」，读者会以为整块都是这 20 天的。
+    keptDays: new Set(
+      recentRows.filter((r) => !pinnedSet.has(r) && !hotSet.has(r)).map((r) => r.date)
+    ).size,
     totalDays,
     // 最近 N 天一条都没有、退一步显示"最后一次聊天那天"时为 true。
     // 日志和测试靠它区分"正常"和"最近没聊过天"。
@@ -466,6 +573,9 @@ export function selectIndexItems(mem, opts = {}) {
     droppedForBudget: dropCount,
     // 被"约定"规则额外钉住的条数（这些不受最近 N 天限制）
     pinnedCount: pinnedRows.length,
+    // 热条目层实际进了几条（2026-11-09）。这些是"窗口外但最常被用起来"的记忆，
+    // 进索引的条件是 hits≥2 且未被取代、非推断。0 表示库里还没有够格的热条目。
+    hotCount: hotPicked.filter((r) => recentRows.includes(r)).length,
     // 索引里带 `~` 的推断条数（2026-10-29）：>0 才补一句"读法"，
     // 没有推断就不占那几十个字符 —— 预算只有 1080。
     inferredCount: recentRows.filter((r) => r.inferred).length,
@@ -495,9 +605,19 @@ export function selectIndexItems(mem, opts = {}) {
 export function extractKeywords(texts, limit = INDEX_HINT_MAX_KEYWORDS) {
   // 预置话题词表。刻意保持短：这些是这本日记里**反复出现**的东西，
   // 而不是通用词。加词的门槛是"她真的提过、且值得回溯"。
+  // ⚠️ 2026-11-09：词表扩充。原表 15 个词只覆盖了 155 条记忆里的 43 条（28%），
+  //    而实际高频话题（天气/报错/文件/apk/mod/吃饭/水果/板子/硬件）一个都不在表里，
+  //    导致归档提示永远只会说「可搜：游戏、手机、语音、消消乐、模拟器、B站」——
+  //    与她真实的记忆内容对不上，等于把 88% 的归档记忆藏成"无从查起"。
+  //    新增词的纳入标准：在 state/daily-memory.json 里真实出现过 ≥2 次，且是具体话题
+  //    （不是「主人」「今天」这类泛词 —— 那些词搜出来全是噪音）。
   const TOPIC_WORDS = [
+    // 原有（保留）
     '消消乐', '模拟器', '语音', '起床', '早安', '晚安', 'B站', '说说', '空间',
-    '日记', '图库', '表情包', '起床', '闹钟', '手机', '游戏'
+    '日记', '图库', '表情包', '闹钟', '手机', '游戏',
+    // 2026-11-09 新增：真实高频但原表漏掉的
+    '天气', '报错', '文件', '吃饭', '水果', '板子', '硬件', '雾霾',
+    'apk', 'mod', '固件', '摄像头', '教程', '音乐', '睡觉', '上班', '上课'
   ];
   const rough = [];
   for (const t of (texts ?? [])) {

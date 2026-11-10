@@ -140,7 +140,46 @@ function readConsoleToken() {
  * ⚠️ 只给**长轮询**用；普通请求继续走 agentApi（undici 更省事，且它们都在
  *    300 秒内，不受影响）。
  */
-function agentApiLongPoll(path, init = {}) {
+/**
+ * 把连接层错误换成一句能看懂、能照做的话。
+ * 两条通道（短请求 / 长轮询）共用，避免同一种失败在两条路上长得不一样。
+ */
+function friendlifyConnectError(error, url) {
+  if (!isConnectionError(error)) return error;
+  const friendly = new Error(`连不上桥接控制台（${url}）—— 桥接可能正在重启，大约 5 秒后会自动恢复，稍等再试`);
+  friendly.cause = error;
+  friendly.kind = 'bridge-unreachable';
+  friendly.retryable = true;
+  return friendly;
+}
+
+/**
+ * 长轮询的重试壳。
+ *
+ * 长轮询一条连接要挂好几分钟，桥接在这期间重启（/api/restart 是 3~5 秒空窗）
+ * 时，连接会被直接掐断。以前这里把掐断直接抛成「等待失败：socket hang up」，
+ * 一次重启就废掉一整轮等待。现在：连接层错误且还没收到任何响应，就重来一次。
+ *
+ * 只在「一个字节都没开始回」时重试 —— 已经开始回包再断，说明桥接处理过一半，
+ * 重发可能重复触发副作用，那种情况必须把错误交上去。
+ */
+async function agentApiLongPoll(path, init = {}) {
+  const url = `${agentApiBase()}${path}`;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await agentApiLongPollOnce(path, init);
+    } catch (error) {
+      const retryable = isConnectionError(error);
+      if (retryable && attempt < CONNECT_RETRY_DELAYS_MS.length) {
+        await sleep(CONNECT_RETRY_DELAYS_MS[attempt]);
+        continue;
+      }
+      throw friendlifyConnectError(error, url);
+    }
+  }
+}
+
+function agentApiLongPollOnce(path, init = {}) {
   const timeoutMs = init.timeoutMs || 60000;
   const consoleToken = readConsoleToken();
   const headers = {
@@ -218,6 +257,30 @@ function agentApiLongPoll(path, init = {}) {
   });
 }
 
+/**
+ * 连接层错误的自动重试。
+ *
+ * 背景（2026-11-08 实测）：桥接控制台的「重启桥接」会先把自己关掉再起来，
+ * 中间有 3~5 秒完全没有监听。恰好落在这段窗口里的请求，undici 只会抛出
+ * 裸的 `TypeError: fetch failed`（底层 ECONNREFUSED / ECONNRESET 被吞进 cause），
+ * 于是模型看到的就是一句毫无信息量的「等待失败：fetch failed」。
+ *
+ * 这里只重试**连接层**错误；HTTP 4xx/5xx、ok:false 是桥接明确表态的结果，
+ * 重试只会把同一个错误重复一遍，所以不重试。
+ */
+const CONNECT_RETRY_DELAYS_MS = [800, 2400];
+
+function isConnectionError(error) {
+  if (!error) return false;
+  // AbortSignal.timeout 触发的是 TimeoutError：桥接活着但没回话，是另一类问题。
+  if (error.name === 'TimeoutError' || error.name === 'AbortError') return false;
+  const code = error?.cause?.code ?? error?.code ?? '';
+  if (['ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'ENOTFOUND', 'EAI_AGAIN', 'UND_ERR_SOCKET', 'UND_ERR_CLOSED'].includes(code)) return true;
+  return /fetch failed|socket hang up|ECONNREFUSED|ECONNRESET|other side closed|terminated/i.test(String(error?.message ?? ''));
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function agentApi(path, init = {}) {
   const timeoutMs = init.timeoutMs || 15000;
   // 超过 300 秒的等待必须走 node:http 那条通道（见 agentApiLongPoll 的说明）。
@@ -237,7 +300,23 @@ async function agentApi(path, init = {}) {
   // 令牌本身仍然只在真有时才发：/api/status 的模式探测（legacyReadToolAllowed）本来就是
   // 无令牌调用，桥接对它单独放行并按最小对象返回。
   headers['x-agent-call'] = '1';
-  const res = await fetch(`${agentApiBase()}${path}`, { ...rest, headers, signal: AbortSignal.timeout(timeoutMs) });
+  const url = `${agentApiBase()}${path}`;
+  let res;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      // signal 必须每次新建：它是从创建那一刻开始计时的，重试时复用会提前到期。
+      res = await fetch(url, { ...rest, headers, signal: AbortSignal.timeout(timeoutMs) });
+      break;
+    } catch (error) {
+      const retryable = isConnectionError(error);
+      if (retryable && attempt < CONNECT_RETRY_DELAYS_MS.length) {
+        await sleep(CONNECT_RETRY_DELAYS_MS[attempt]);
+        continue;
+      }
+      if (retryable) throw friendlifyConnectError(error, url);
+      throw error;
+    }
+  }
   let body = null;
   try { body = await res.json(); } catch { body = null; }
   // 把桥接返回的结构化提示「挂」到 Error 上一起往上抛：光有 error 文案会丢掉
@@ -283,7 +362,7 @@ async function legacyReadToolAllowed() {
   return String(status?.mode ?? '') === 'closed-agent';
 }
 
-const server = new McpServer({ name: 'snowluma-safe', version: '0.2.1-r1' });
+const server = new McpServer({ name: 'snowluma-safe', version: '0.2.2-r1' });
 
 // ── 工具开关必须在**注册期**生效，而不是只在校验期 ──────────────────────────
 //

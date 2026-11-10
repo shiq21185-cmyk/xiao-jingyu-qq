@@ -39,7 +39,7 @@
 - **STS3215 有 6V/7.4V/12V 多个版本在流通**，电源要按手上那批的铭牌买（§2.1）。
 - **R8 必然丢 GPIO33–37**；禁区还有 26–32(Flash)、19/20(USB)、43/44(UART)、0/3/45/46(strapping)。
 - **舵机和 MCU 共地但绝不共电源路径**，否则舵机一动 ESP32 就复位。
-- **`scripts/test-permit-gate.mjs:92` 硬编码 `['bili','phone']`**，加 `body` scope 会判红，要同步改。
+- ~~**`scripts/test-permit-gate.mjs:92` 硬编码 `['bili','phone']`**，加 `body` scope 会判红~~ —— 该脚本与申请闸门 2026-11-06 一起下线，这条坑不复存在；身体要动得另造授权机制。
 - **`scripts/setup-dsh.mjs:126` 的 `MANAGED_MCP_IDS` 不加 `mcp-body`，DSH 根本不会 spawn 它**；且那段 cordis 区块是整体重写的，别手改内部。
 
 ## 5. PC 侧要改的地方（仓库 `qq-bridge-deploy`，已核对行号）
@@ -48,7 +48,7 @@
 |---|---|
 | 新建 MCP server | `src/mcp-body.js`（骨架抄 `src/mcp-games.js`） |
 | 让 DSH 拉起 | `scripts/setup-dsh.mjs:126` + `:128` 的 `mcpEntries()` |
-| 授权档位 | `src/permit-lib.js:32` 的 `PERMIT_SCOPES` 加 `body`（5/30 分钟，比手机短） |
+| 授权档位 | ~~`src/permit-lib.js:32` 的 `PERMIT_SCOPES` 加 `body`~~ —— 该文件已随申请闸门删除（2026-11-06），需另造机制 |
 | 守卫 | `plugins/qq-agent-presets/qq-tool-restrict.mjs:340` 加 `BODY_TOOLS`；`:347` 加进 `OWNER_PRIVATE_ONLY_DSH_TOOLS`；`:380` 加 `PERMIT_TOOL_SCOPES` |
 | 配置 | `config.json` 加 `body` 段，`enabled` 默认 false |
 | **事件映射（最值钱）** | `src/bridge.js`：入站热路径（`:13643` 一带）、`deliverPromptNow()`（`:11537`）、`sendChain` then（`:9424`/`:9616`）、`setWakeConfig` 分支 |

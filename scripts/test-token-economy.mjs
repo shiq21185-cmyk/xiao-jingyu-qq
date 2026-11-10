@@ -254,6 +254,9 @@ await test('combined close respects the separate mark-read and wake-config tool 
 await test('an in-flight wait cannot authorize new messages after its session token is retired', async ({ h, st, request, append }) => {
   await h.ensureSession(KEY);
   append('before wait');
+  // 先读一遍：messages 用途现在会把「她没看过的消息」立刻交回来，
+  // 不先消费掉这条就根本进不了在途状态，这条用例要测的权限复查也就无从发生。
+  await request('unread');
   const oldToken = st.agentToken;
   const waiting = request('wait', { body: { timeoutMs: 1000, quietMs: 0 }, token: oldToken });
   const timer = setTimeout(() => { h.retireSession(KEY); append('arrived after token retirement'); }, 60);
@@ -267,6 +270,8 @@ await test('an in-flight wait cannot authorize new messages after its session to
 
 await test('an in-flight wait cannot write observation into a replaced conversation state', async ({ h, st, request, append }) => {
   append('old state');
+  // 同上：不先读掉这条，等待会立即返回，测不到「在途期间的会话被替换」。
+  await request('unread');
   const waiting = request('wait', { body: { timeoutMs: 100, quietMs: 0 } });
   const timer = setTimeout(() => {
     h.socialV2.conversations.delete(KEY);
@@ -283,6 +288,8 @@ await test('an in-flight wait cannot write observation into a replaced conversat
 
 await test('an in-flight wait rechecks mode permission before exposing a new arrival', async ({ h, request, append }) => {
   append('before mode change');
+  // 同上：先读掉，让这次等待真的进入在途状态。
+  await request('unread');
   const waiting = request('wait', { body: { timeoutMs: 1000, quietMs: 0 } });
   const timer = setTimeout(() => { h.setMode('chat'); append('after mode change'); }, 60);
   let result;
@@ -308,6 +315,8 @@ await test('building a budgeted snapshot preserves whole oldest messages without
 
 await test('an in-flight wait rechecks paused, feature, tool and allowlist permissions without granting observation', async ({ h, st, request, append }) => {
   append('unread before policy changes');
+  // 同上：这四条测的是「在途期间权限被收回」，先把未读消费掉才有在途可言。
+  await request('unread');
   const cases = [
     ['pause', () => { h.socialV2.paused = true; }, () => { h.socialV2.paused = false; }],
     ['feature disable', () => { h.cfg.socialV2.enabled = false; }, () => { h.cfg.socialV2.enabled = true; }],

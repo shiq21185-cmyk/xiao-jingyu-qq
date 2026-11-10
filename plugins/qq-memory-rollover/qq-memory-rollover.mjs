@@ -14,6 +14,10 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const STATE_DIR = path.join(ROOT, 'state');
 const ROLES_DIR = path.join(ROOT, 'roles');
 const DAILY_MEMORY_FILE = path.join(STATE_DIR, 'daily-memory.json');
+// 「被想起来过几次」的账本（2026-11-09）。**写入权在 bridge.js**（它才看得见
+// 每轮对话里哪条记忆被顺嘴勾起来），这里只读 —— 热条目层用它挑出最该常驻的几条。
+// 两边必须指向同一个文件：bridge 的 RECALL_HITS_FILE 是 state/memory-hits.json。
+const RECALL_HITS_FILE = path.join(STATE_DIR, 'memory-hits.json');
 const CONSOLE_TOKEN_FILE = path.join(STATE_DIR, 'console-token');
 // token 账本（bridge.js 的 createTokenLedger 写）。这里只用来数「这个会话跑了几个回合」。
 // 行格式见 src/token-ledger.js 顶部：{"k":"turn", t, sid, key, turn, step, ...}。
@@ -548,7 +552,18 @@ function injectIndexIntoRole(mem, config = null) {
     .replace(/\s+$/, '').length;
   // 留 260 字符缓冲：块与正文之间的空行、两个标记、以及将来正文微调。
   const budget = Math.max(600, injectMax - bodyLen - 260);
-  const picked = selectIndexItems(mem, { maxChars: budget });
+  // 热条目层的数据源：bridge 写的「被想起来过几次」账本。
+  // 为什么由这里传进去而不是让 memory-index.mjs 自己读文件：
+  //   memory-index.mjs 是**纯函数**模块（只进出字符串），它的 35 个测试
+  //   全部靠"不碰文件系统"才跑得起来（见该文件顶部注释）。
+  //   在这里读、把对象传进去，纯函数那边什么都测得到。
+  // 读不到就当没有热条目 —— 这一层是锦上添花，绝不能因为它让索引生成失败。
+  let recallHits = {};
+  try {
+    const raw = JSON.parse(fs.readFileSync(RECALL_HITS_FILE, 'utf8'));
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) recallHits = raw;
+  } catch { /* 文件不在/坏了：退化成"没有热条目"，不报错 */ }
+  const picked = selectIndexItems(mem, { maxChars: budget, recallHits });
   const result = injectIndexIntoText(text, picked.lines, {
     archivedCount: picked.archivedCount,
     keywords: picked.keywords,

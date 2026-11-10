@@ -1,0 +1,3 @@
+name: QQ 聊天角色（二代仿真 · 管理员私聊完全接入 DSH）
+description: 与 qq-chat-v2 人格逐字节一致，但工具面多「手+眼+脑」（read/write/edit/glob/grep/pwsh/ops_bash 等本地工具），只对管理员私聊放行；群聊/普通成员私聊仍由守卫按会话 id 反查拒绝本地工具。
+order: 10

@@ -40,7 +40,7 @@
 | 7 | `scripts/probe-auth.mjs`（新增）+ 5 个探针 + 4 个运维脚本 | 鉴权统一走离线铸造 Cookie；夹具改到系统临时目录 | §5 遗留缺口 |
 | 8 | `scripts/probe-020-protocol.mjs`、`probe-020-settings.mjs`（新增） | 0.2.0 契约探针（帧结构 / settings 命名空间） | §2 §4 取证 |
 | 9 | `scripts/test-dsh-inbox-projection.mjs`（新增，12 项） | 用**真实 0.2.0 帧骨架**钉住队列解析（离线，已进 `test:audit`） | §2 回归网 |
-| 10 | `scripts/test-dsh-session-retire.mjs`（新增，11 项） | 活 DSH 端到端：退役会话必须成功且真的清掉队列 | §2 回归网 |
+| 10 | `scripts/test-dsh-session-retire.mjs`（新增，11 项；**2026-11-10 已删除** —— 它要求活 DSH 控制端口在跑，平时一律红，属手工排查） | 活 DSH 端到端：退役会话必须成功且真的清掉队列 | §2 回归网 |
 | 11 | `scripts/test-audit-protocol.mjs` | 3 条会话退役用例按两条路径重写（含 0.2.0 形状断言） | §2 回归网 |
 | 12 | `scripts/verify-dsh-015-adaptation.mjs` → `verify-dsh-020-adaptation.mjs` | 活 DSH 段重写为 0.2.0 契约；语法检查在禁止 spawn 的环境改为**显式跳过**而非假失败 | §6 |
 | 13 | `scripts/test-preset-local-tools.mjs` | 删掉自带的模糊抽取器，改用 §3 的唯一实现；名单同步 | §3 |
@@ -220,7 +220,8 @@ schema 接受全部 mode 拼写、**不再出现 `settings.register`**（只看�
   `probeRpc` / `probeMuxSocket` / `probeWorkspaceDir`；9 个脚本全部改用它。
 - **落盘**：探针与测试夹具原先写在仓库 `state/` 下。`state/` 被 `harden-state-acl.mjs` 收紧了 ACL
   （见 §7.2），在 DSH 沙箱会话里**写不进去**（EPERM）。
-  → 探针、`self-test`、`test-setup-dsh-idempotent`、`test-dsh-v2-wait` 的临时产物全部改到系统临时目录。
+  → 探针、`self-test`、`test-setup-dsh-idempotent` 的临时产物全部改到系统临时目录
+  （`test-dsh-v2-wait` 也在这里迁的，但该脚本 2026-11-10 已删除）。
   迁完后 `npm run self-test` 在沙箱里也能完整跑通。
 - 删除 `scripts/probe-015.mjs`（0.1.5 专用，已被 verifier 取代，走的是旧点号协议路径）；
   同一用途由 `probe-020-protocol.mjs` 承担。

@@ -16,6 +16,14 @@ import {
   buildPatches, patchFileFor, presetRowId,
 } from './build-agent-preset-patches.mjs';
 
+// qq-owner-dsh 用独立守卫（手眼脑工具只放行管理员私聊），引用名与主守卫不同。
+const GUARD_SPECIFIER_OWNER = 'qq-agent-presets/qq-tool-restrict-owner.mjs';
+const GUARD_BY_PRESET = {
+  'qq-chat': GUARD_SPECIFIER,
+  'qq-chat-v2': GUARD_SPECIFIER,
+  'qq-owner-dsh': GUARD_SPECIFIER_OWNER,
+};
+
 let failures = 0;
 function ok(cond, label) {
   if (cond) console.log(`✅ ${label}`);
@@ -51,7 +59,10 @@ for (const name of PRESETS) {
   // 与源行列表逐字对比：只允许守卫行的 name 被改写。
   const source = load(path.join(REPO_ROOT, 'dsh', 'agent-presets', name, 'agent.cordis.yml'));
   const expected = structuredClone(source);
-  for (const r of expected) if (r.name === './qq-tool-restrict.mjs') r.name = GUARD_SPECIFIER;
+  for (const r of expected) {
+    if (r.name === './qq-tool-restrict.mjs') r.name = GUARD_SPECIFIER;
+    else if (r.name === './qq-tool-restrict-owner.mjs') r.name = GUARD_SPECIFIER_OWNER;
+  }
   assert.deepEqual(row.config.plugins, expected, `${name}: config.plugins 必须与 agent.cordis.yml 完全一致（守卫名除外）`);
   ok(true, `${name}: config.plugins 与 agent.cordis.yml 逐字一致（${expected.length} 行）`);
 
@@ -66,11 +77,12 @@ console.log('## 3. 守卫行引用方式：只用「profile 目录可解析」�
 for (const name of PRESETS) {
   const row = load(patchFileFor(name))[0].insert[0];
   const guard = row.config.plugins.find((r) => r.id === 'qq-tool-restrict');
+  const guardSpec = GUARD_BY_PRESET[name];
   ok(guard !== undefined, `${name}: 有 qq-tool-restrict 守卫行`);
-  ok(guard?.name === GUARD_SPECIFIER, `${name}: 守卫行 name = ${GUARD_SPECIFIER}`);
+  ok(guard?.name === guardSpec, `${name}: 守卫行 name = ${guardSpec}`);
   const bad = row.config.plugins.filter((r) => typeof r.name === 'string' && (r.name.startsWith('.') || path.isAbsolute(r.name)));
   ok(bad.length === 0, `${name}: 没有任何相对/绝对路径子行名（0.1.7 下会按 profile 目录解析而装不上）${bad.length ? `：${bad.map((r) => r.name).join(', ')}` : ''}`);
-  const guardFile = path.join(BUNDLE_DIR, GUARD_SPECIFIER.slice('qq-agent-presets/'.length));
+  const guardFile = path.join(BUNDLE_DIR, guardSpec.slice('qq-agent-presets/'.length));
   ok(fs.existsSync(guardFile), `${name}: 守卫实现存在（${path.relative(REPO_ROOT, guardFile)}）`);
 }
 
@@ -90,15 +102,21 @@ console.log('## 4. bundle 声明与安全边界');
   for (const needle of ["const SAFE_PREFIXES", "'mcp__snowluma__'", "'mcp__web-search-safe__'", 'SAFE_EXACT', 'return `工具 "']) {
     ok(canonicalText.includes(needle), `权威守卫包含 ${needle}`);
   }
-  // 一份实现：两个 preset 目录下的同名文件必须是 re-export 壳，且导出同名成员。
+  // 一份实现（普通 preset）或 owner 专用实现（qq-owner-dsh）：preset 目录下的同名文件
+  // 必须是 re-export 壳，且导出与各自权威实现一致。
   const canonicalMod = await import(pathToFileURL(canonical).href);
+  const ownerCanonical = path.join(BUNDLE_DIR, 'qq-tool-restrict-owner.mjs');
+  const ownerMod = await import(pathToFileURL(ownerCanonical).href);
   for (const name of PRESETS) {
+    const isOwner = name === 'qq-owner-dsh';
+    const impl = isOwner ? ownerMod : canonicalMod;
+    const expectedName = isOwner ? 'qq-tool-restrict-owner' : 'qq-tool-restrict';
     const shim = path.join(REPO_ROOT, 'dsh', 'agent-presets', name, 'qq-tool-restrict.mjs');
-    ok(/^export \* from '\.\.\/\.\.\/\.\.\/plugins\/qq-agent-presets\/qq-tool-restrict\.mjs'$/m.test(read(shim).trim()),
-      `${name}/qq-tool-restrict.mjs 是指向唯一实现的 re-export 壳`);
+    const re = new RegExp(`^export \\* from '\\.\\.\\/\\.\\.\\/\\.\\.\\/plugins\\/qq-agent-presets\\/qq-tool-restrict${isOwner ? '-owner' : ''}\\.mjs'$`, 'm');
+    ok(re.test(read(shim).trim()), `${name}/qq-tool-restrict.mjs 是指向对应实现的 re-export 壳`);
     const shimMod = await import(pathToFileURL(shim).href);
-    assert.equal(shimMod.apply, canonicalMod.apply, `${name}: 壳与实现在同一模块实例上`);
-    assert.equal(shimMod.name, 'qq-tool-restrict');
+    assert.equal(shimMod.apply, impl.apply, `${name}: 壳与实现在同一模块实例上`);
+    assert.equal(shimMod.name, expectedName);
     assert.deepEqual(shimMod.inject, ['tools']);
   }
   ok(true, 're-export 壳与权威实现导出同一份 apply/inject');

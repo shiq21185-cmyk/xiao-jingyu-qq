@@ -22,7 +22,24 @@ node scripts/console-ui-fixture.mjs --html=path/to/console.html
 
 `--original` 读取 `scripts/fixtures/console.before.html`（改造前的原版，随仓库保留），仅用于对照预览；正常预览读取 `public/console.html`。
 
-## 浏览器回归
+## 浏览器回归（⚠️ 2026-11-10 起本机没有这个脚本了）
+
+> `scripts/test-console-ui.mjs` **已删除** —— 它依赖 Playwright / 本机 Chrome，本机两者都没有，
+> 每次都直接抛 `Playwright not found`。`npm run test:console-ui` 也一起删了。
+>
+> 现在控制台要验什么，走这两条（都在 `npm run test:audit` 里，纯 node，无浏览器）：
+>
+> ```sh
+> node scripts/test-console-static.mjs    # 静态契约：HTML 里的 ID/端点/引用是否还齐全
+> node scripts/test-extra-console.mjs     # 专项控制台的隔离性（只许 import 内置、只许调老端点）
+> ```
+>
+> 想看界面长什么样，用上面的**离线预览**（`npm run preview:console`），它是纯 fixture + 浏览器手看，
+> 不做自动断言。要恢复自动浏览器回归，先 `npm install --no-save playwright`，再从 git 历史取回
+> `scripts/test-console-ui.mjs`（`git show <commit>:scripts/test-console-ui.mjs`）。
+
+<details>
+<summary>原文保留（恢复后照它跑）</summary>
 
 ```sh
 npm run test:console-ui          # 等价于 node scripts/test-console-ui.mjs
@@ -59,6 +76,8 @@ node scripts/test-console-ui.mjs --artifacts=docs/ui-verification
 
 `--artifacts` 会保存检查结果 JSON、模拟写请求记录和桌面 / 手机截图（浅色与深色各一组），截图时会静止动画以保证可复现。默认不生成额外文件。
 
+</details>
+
 ## 基线说明
 
 `console-ui-legacy-ids.json` 保存改造前的 225 个元素 ID。`console-ui-contracts.json` 来自原控制台在相同 fixture 中执行相同操作后的 24 次写请求，包含二代配置的完整嵌套参数。
@@ -66,7 +85,7 @@ node scripts/test-console-ui.mjs --artifacts=docs/ui-verification
 只有后端契约经过明确调整时才更新基线。`scripts/fixtures/console.before.html` 是改造前的原版控制台（通常无需改动），重录时运行：
 
 ```sh
-node scripts/test-console-ui.mjs --original --record-baseline
+node scripts/test-console-ui.mjs --original --record-baseline   # 2026-11-10 起该脚本已删，需先从 git 历史取回
 ```
 
 普通回归不依赖 `console.before.html`。不要用真实的 `test-console.mjs` 替代本脚本：那个脚本可能向真实 QQ 发送消息。

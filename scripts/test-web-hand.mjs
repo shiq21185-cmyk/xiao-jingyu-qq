@@ -263,9 +263,11 @@ test('生成出来的 patch 也同步了（DSH 读的是它，不是源文件）
 });
 
 console.log('— 6. 原有边界没被放松 —');
-test('手机工具仍然要申请，本地执行面仍然全拒', () => {
+test('手机工具三类会话全拒（2026-11-06 整包下线后仍然成立），本地执行面仍然全拒', () => {
+  // 手机 adb 那套已经整包不挂载了，但守卫这一层不能因此"顺带放开"——
+  // 哪天有人把 mcp__phone__ 前缀加回 SAFE_PREFIXES，这里必须红。
   for (const kind of ALL) {
-    assert.ok(typeof verdictFor('mcp__phone__phone_tap', kind) === 'string', '手机工具必须仍然需要授权');
+    assert.ok(typeof verdictFor('mcp__phone__phone_tap', kind) === 'string', '手机工具在所有会话都必须被拒');
     assert.ok(typeof verdictFor('pwsh', kind) === 'string', '本地执行面必须仍然全拒');
   }
 });

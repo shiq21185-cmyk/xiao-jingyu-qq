@@ -77,7 +77,7 @@ const LOCAL_EXECUTION_TOOLS = [
   'subagent_codex', 'subagent_claude_code',
   'spawn_teammate', 'team_task_create', 'team_task_get', 'team_task_list', 'team_task_update',
   'plugin_manager',
-  'schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete',
+  'schedule_create', 'schedule_list', 'schedule_edit', 'schedule_view',
   // 0.2.1 新增对账（本机实测 known global tools 里出现 working_directory；
   // terminal / session-query / plugin_market 为准入回归网，见守卫注释）
   'working_directory',

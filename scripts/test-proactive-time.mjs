@@ -13,7 +13,8 @@ import {
   describeClock,
   humanGap,
   formatTimeContext,
-  proactiveTimeFactor
+  proactiveTimeFactor,
+  spokenClock
 } from '../src/time-context.js';
 
 // 构造一个本地时间的 Date（不依赖测试机时区地写死 UTC，否则 CI 与开发机结论不同）
@@ -140,4 +141,54 @@ test('permit answer vocabulary is unambiguous', () => {
     assert.ok(d.startsWith('不'), `${d} 必须以否定词开头，实现里要先判否定`);
   }
   assert.ok(ALLOW.length > 0 && DENY.length > 0);
+});
+
+// ── 口语钟点（2026-11-09 事故回归）──────────────────────────────────────────
+// 事故：提示词给的是 24 小时制 `16:05`，她自己换算成"下午四点"时算错，先说出
+// 「四点十分了，往教室走呢吧」（实际四点十分早过了），补救时又编出「这会儿五点了」。
+// 给的 16:05 一直没错，错在"24 小时制 → 口语"这一步要模型自己算。
+// 修法：把口语读法直接摆进提示词，让她照抄。下面把这些读法钉死。
+test('spokenClock reads 24h clock the way a person says it', () => {
+  const cases = [
+    [0, 0, '零点'],
+    [0, 5, '零点零五'],
+    [3, 30, '凌晨三点半'],
+    [5, 30, '早上五点半'],
+    [8, 59, '早上八点五十九'],
+    [9, 7, '上午九点零七'],
+    [11, 11, '上午十一点十一'],
+    [12, 0, '中午十二点'],
+    [12, 20, '中午十二点二十'],
+    [15, 45, '下午三点四十五'],
+    [16, 5, '下午四点零五'],      // ← 事故那一刻
+    [17, 0, '下午五点'],
+    [19, 50, '晚上七点五十'],
+    [23, 59, '晚上十一点五十九']
+  ];
+  for (const [h, m, want] of cases) {
+    assert.equal(spokenClock(at(h, m)), want, `${h}:${String(m).padStart(2, '0')} 应读作「${want}」`);
+  }
+});
+
+test('spokenClock never leaks 24-hour phrasing', () => {
+  // "十六点零五分"这种报时腔不是人话；一旦出现说明又退回 24 小时制了
+  for (let h = 0; h < 24; h++) {
+    for (const m of [0, 5, 12, 30, 45, 59]) {
+      const said = spokenClock(at(h, m));
+      if (h >= 13) {
+        assert.doesNotMatch(said, /十[三-九]点/, `${h}:${m} 不该说成「${said}」`);
+      }
+      assert.doesNotMatch(said, /^二?十[三四]点/, `${h}:${m} 不该说成「${said}」`);
+    }
+  }
+});
+
+test('formatTimeContext puts an unambiguous spoken clock in the prompt', () => {
+  // 事故原时刻：必须能一眼读到"下午四点零九"，并且明确别读成别的钟点
+  const now = new Date(2026, 10, 9, 16, 9, 0, 0);
+  const text = formatTimeContext({ now });
+  assert.match(text, /【现在】2026-11-09 周一 16:09（下午四点零九）/);
+  assert.match(text, /【口语】现在开口要说「下午四点零九」/);
+  // 保留 24 小时制（日志/对照要好认），所以两个都要有
+  assert.match(text, /16:09/);
 });

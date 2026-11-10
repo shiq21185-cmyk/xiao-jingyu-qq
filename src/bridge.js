@@ -1108,14 +1108,34 @@ function pickRecallRows(rows, query, opts = {}) {
   for (const p of pool) {
     let score = 0;
     let headHit = false;
+    let detailHit = false;
+    // 2026-11-09 放宽：原来要求"必须命中 text"，但双档设计下 text 只有 ≤80 字，
+    // 关键细节被有意放进了 detail（≤200 字，只在归档检索时才读）。
+    // 两条规则互相打架的后果：**内容在 detail 里的记忆永远无法被自动回想起**。
+    // 实测 155 条里 102 条有 detail，其中大量关键信息（"板子上接的扬声器"这种）
+    // 只存在于 detail —— 它们对每轮召回来说是隐形的。
+    //
+    // 现在改成：text 命中照旧 ×2，detail 命中给 ×1（仍是半权，保证 text 优先），
+    // 但**允许只靠 detail 触发召回**。门槛分数保持 2 分不变 —— 即：
+    // 一个"只出现 1 次"的词命中 detail 拿 3 分，能过线；
+    // 一个泛词（df>8）得 0 分，依然被挡在外面。
     for (const t of capped) {
       const w = weightOf(df.get(t) || 0);
       if (!w) continue;
       if (p.head.includes(t)) { score += w * 2; headHit = true; }
-      else if (p.detail.includes(t)) { score += w; }
+      else if (p.detail.includes(t)) { score += w; detailHit = true; }
     }
-    // 门槛：要点里一个词都没对上 → 空手。只在详细里沾边的不要。
-    if (!headHit || score < 2) continue;
+    // 门槛（2026-11-09 两段式）：
+    //   · text 命中：总分 ≥2 即可（照旧）
+    //   · **只有 detail 命中**：要求总分 ≥3，也就是必须命中的是**稀有词**
+    //     （df≤1 的词权重 3；df 2~3 的词权重 2，单靠它撞不动）。
+    // 为什么这么分：detail 里常常是"顺口提了一句"（实测有记忆的花屏条目里，
+    // 详细写着「换键盘那天顺口提了一句」—— 那条讲的是显卡，不是键盘）。
+    // 这种沾边提出来她会把两件事缝成一件，比不提更糟。
+    // 但反过来，关键信息确实常常只在 detail 里（"板子上接的扬声器"就是这样），
+    // 所以**稀有的 detail 命中必须能触发召回** —— 这才是双档设计该有的样子。
+    if (!headHit && !detailHit) continue;
+    if (headHit ? score < 2 : score < 3) continue;
     scored.push({ p: p, score: score });
   }
   if (!scored.length) return [];
@@ -5251,9 +5271,20 @@ async function main() {
       if (!chosen) log('⚠️ 无法确定 closed-agent 的 preset（DSH preset 清单未知），将按 DSH 默认 preset 建会话');
       return chosen || undefined;
     }
-    // 二代仿真模式优先使用 socialV2.agentPreset；未配置时回退到默认聊天预设。
-    // 非 closed-agent 一律 strict：宁可建不出会话，也不给群聊套上带本地工具的默认 preset。
-    const wanted = mode === 'reserved2' ? (cfg.socialV2?.agentPreset || cfg.agentPreset) : cfg.agentPreset;
+    // 管理员私聊「完全接入 DSH」：给 owner 私聊单开 qq-owner-dsh（人格同 qq-chat-v2 + 手眼脑工具，
+    // 守卫 qq-tool-restrict-owner 只在 owner-private 放行本地工具）。其它会话（群聊/成员私聊）仍走
+    // 二代仿真 preset（无本地工具）。
+    // 2026-11-09 主人拍板（计划书 m08597/m08770/m09018）：私聊完全接入 DSH，owner 档有本地工具。
+    if (mode === 'reserved2') {
+      const ownerQQ = String(cfg.ownerQQ ?? '').trim();
+      const isOwnerPrivate = ownerQQ !== '' && key === `private:${ownerQQ}`;
+      const wanted = isOwnerPrivate
+        ? (cfg.socialV2?.ownerAgentPreset || 'qq-owner-dsh')
+        : (cfg.socialV2?.agentPreset || cfg.agentPreset);
+      return resolvePresetName(wanted, { strict: true }) || undefined;
+    }
+    // 非 reserved2（v1 模式等）维持原行为：一律按 cfg.agentPreset。
+    const wanted = cfg.agentPreset;
     return resolvePresetName(wanted, { strict: true }) || undefined;
   }
 
@@ -5343,6 +5374,7 @@ async function main() {
       st.agentToken = crypto.randomBytes(24).toString('hex');
       rememberAgentToken(key, st.agentToken);
       st.bootstrapSent = false;
+      st.wakeHeaderSent = false;
       st.modelSeenSeqs = new Set();
     }
     saveState();
@@ -6411,173 +6443,8 @@ async function main() {
     };
     // 二代会话工具必须仍命中当前模式的白名单/准入；避免白名单移除后旧 agentToken 继续读状态。
     const v2SessionAllowed = isSessionAllowedInCurrentMode;
-    const server = http.createServer(async (req, res) => {
-      let url;
-      try { url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`); }
-      catch {
-        res.writeHead(400, { 'content-type': 'application/json; charset=utf-8', 'Connection': 'close' });
-        res.end(JSON.stringify({ ok: false, error: '无效的请求地址' }));
-        return;
-      }
-      const SECURITY_HEADERS = {
-        'X-Frame-Options': 'DENY',
-        // 不写这条的话 `default-src 'self'` 会把跨端口的 iframe 直接拒掉，
-        // 控制台里就是一块白板 + 浏览器报 Refused to frame。
-        // 只放行本机 3101，不是 `*`；3101 那边同时也收窄成只认 3100。
-        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';",
-        'Cache-Control': 'no-store',
-        'X-Content-Type-Options': 'nosniff',
-        'Referrer-Policy': 'no-referrer'
-      };
-      const sendJson = (obj, status = 200) => {
-        res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', ...SECURITY_HEADERS });
-        res.end(JSON.stringify(obj, null, 2));
-      };
-      const readBody = () => new Promise((resolve, reject) => {
-        const MAX_BODY_BYTES = 1_000_000;
-        const chunks = [];
-        let total = 0;
-        let settled = false;
-        let bodyTimer = null;
-        const fail = (status, message) => {
-          if (settled) return;
-          settled = true;
-          if (bodyTimer) clearTimeout(bodyTimer);
-          const err = new Error(message);
-          err.statusCode = status;
-          reject(err);
-        };
-        const done = (val) => {
-          if (settled) return;
-          settled = true;
-          if (bodyTimer) clearTimeout(bodyTimer);
-          resolve(val);
-        };
-        // 提前按 Content-Length 拒绝超限请求体
-        const declared = Number(req.headers['content-length']);
-        if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
-          fail(413, '请求体过大（超过 1MB）');
-          return;
-        }
-        bodyTimer = setTimeout(() => fail(400, '请求体读取超时'), 30000);
-        req.on('data', (c) => {
-          if (settled) return;
-          const buf = Buffer.isBuffer(c) ? c : Buffer.from(c);
-          total += buf.length;
-          if (total > MAX_BODY_BYTES) {
-            req.pause();
-            fail(413, '请求体过大（超过 1MB）');
-            return;
-          }
-          chunks.push(buf);
-        });
-        req.on('end', () => {
-          if (settled) return;
-          const data = Buffer.concat(chunks).toString('utf8');
-          if (!data.trim()) { done({}); return; }
-          let parsed;
-          try { parsed = JSON.parse(data); } catch { fail(400, '请求体必须是合法 JSON'); return; }
-          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-            fail(400, '请求体必须是 JSON 对象');
-            return;
-          }
-          done(parsed);
-        });
-        // 请求体超限/连接异常时也要结束等待，避免 handler 悬挂
-        req.on('error', () => fail(400, '请求体读取失败'));
-        req.on('aborted', () => fail(400, '请求体读取中断'));
-      });
-      // 浏览器会自动请求 /favicon.ico，且**不带控制台令牌**。若让它落到下面的鉴权分支，
-      // 每次打开控制台都会在 DevTools 里留一条 401 噪音（离线预览 fixture 早已用 204 处理，
-      // 真实服务端此前与自己的 fixture 行为不一致）。这里在任何鉴权之前直接 204 收掉。
-      if (req.method === 'GET' && (url.pathname === '/favicon.ico' || url.pathname === '/apple-touch-icon.png')) {
-        res.writeHead(204, SECURITY_HEADERS);
-        res.end();
-        return;
-      }
-      // Host 头校验（DNS rebinding 硬化）：控制台只监听 127.0.0.1，因此合法请求的 Host
-      // 只可能是 127.0.0.1 / localhost / [::1] 加本端口。攻击者用一个 TTL=0 的域名解析到
-      // 127.0.0.1 时，浏览器会把 evil.com:3100 当作同源，Origin 校验随之失效；卡住 Host
-      // 这一层后，这类请求在进入任何业务分支之前就被拒掉。
-      // 反代/端口转发场景会被一并拒绝——这是有意的（要远程访问请用 SSH 隧道并自行承担）。
-      const hostHeader = String(req.headers.host ?? '');
-      // 用**实际绑定端口**而不是配置值：测试夹具用 consolePort: 0 让系统分配端口，
-      // 配置里那个 0 不是请求里的 Host 端口。请求必然发生在 listen 之后，所以这里拿得到。
-      const boundPort = server.address()?.port ?? port;
-      const allowedHosts = [`127.0.0.1:${boundPort}`, `localhost:${boundPort}`, `[::1]:${boundPort}`];
-      if (!allowedHosts.includes(hostHeader.toLowerCase())) {
-        sendJson({ ok: false, error: `Host 头不被允许（${hostHeader || '缺失'}）：控制台只接受本机回环访问` }, 403);
-        return;
-      }
-      // 控制台鉴权：所有请求需带 x-console-token 或 ?token=
-      // 定长比较：`!==` 会在第一个不同的字符处短路，理论上可被本机进程用响应时延逐字节试探。
-      // 令牌是 192 bit 随机值且只监听回环，所以这是纵深防御而非在野漏洞。
-      const suppliedToken = String(url.searchParams.get('token') ?? req.headers['x-console-token'] ?? '');
-      const tokenMatches = (() => {
-        if (!consoleToken) return false; // 上面已拒绝空令牌；真出现也只许失败关闭，绝不 return true
-        const a = Buffer.from(suppliedToken, 'utf8');
-        const b = Buffer.from(consoleToken, 'utf8');
-        if (a.length !== b.length) return false;
-        return crypto.timingSafeEqual(a, b);
-      })();
-            if (consoleToken && !tokenMatches) {
-        // ⭐ 本机打开控制台页面（GET /）不再弹令牌框（主人 2026-10-19 要求）。
-        //
-        // 为什么安全：能走到这里的请求**已经过了 Host 头校验**（只接受
-        // 127.0.0.1 / localhost / [::1]），必然来自本机浏览器。而能从
-        // state/console-token 读到这串令牌的人本来就有本机文件权限 —— 让他
-        // 再手抄一遍没有任何安全收益，只有"每次开面板都要粘贴一次"的折磨。
-        // 所以：**只有根页面**返回注入了令牌的页面；所有 API 仍然逐个校验令牌
-        //（下面的 401 分支是给 API 用的，保持不变）。
-        if (req.method === 'GET' && url.pathname === '/') {
-          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS });
-          try {
-            const html = fs.readFileSync(path.join(ROOT, 'public', 'console.html'), 'utf8');
-            res.end(injectConsoleToken(html, consoleToken));
-          } catch {
-            res.end('控制台页面缺失：qq-bridge/public/console.html');
-          }
-          return;
-        }
-        sendJson({ ok: false, error: '未授权：请提供控制台访问令牌' }, 401);
-        return;
-      }
-      // 智能体调用隔离（集中关卡）。
-      //
-      // 背景：控制台令牌是「管理端全权」，会话令牌是「只能动自己这个会话」。MCP 工具进程
-      // 两者都持有，所以「这次请求到底是智能体发的还是管理端发的」必须由请求自己声明。
-      // 各端点用 `if (x-agent-token && !agentTokenOk(...))` 做会话绑定校验，但那个写法在
-      // **头缺失时整条跳过** —— 而头缺失恰恰是模型没传 token 时的自然结果
-      // （旧版 mcp-snowluma-safe.js 用 `...(token ? {...} : {})` 直接省略了这个头）。
-      // 于是「漏传令牌」不是被拒绝，而是**升级成控制台全权**：典型的 confused deputy。
-      //
-      // 现在 MCP 端一律带上 x-agent-call: 1（缺令牌时 x-agent-token 为空串），这里只要看到
-      // 这个声明就要求令牌必须命中某个活跃会话，端点自己漏写校验也不会退回管理端。
-      if (req.headers['x-agent-call'] !== undefined) {
-        if (!isLiveAgentToken(req.headers['x-agent-token'])) {
-          sendJson({ ok: false, error: '未授权：智能体调用必须携带有效的会话令牌' }, 403);
-          return;
-        }
-      }
-      // CSRF 防护：所有写操作必须是 application/json，且（若带 Origin）必须来自本机页面。
-      // 默认未配 consoleToken 时，这可阻止任意网页用表单/跨站请求触发
-      // /api/restart、/api/workspace/reset、/api/role 等破坏性接口。
-      if (req.method !== 'GET') {
-        const ctype = String(req.headers['content-type'] ?? '');
-        if (!ctype.toLowerCase().includes('application/json')) {
-          sendJson({ ok: false, error: '请求必须是 application/json' }, 415);
-          return;
-        }
-        const origin = req.headers['origin'];
-        if (origin) {
-          let originHost = '';
-          try { originHost = new URL(String(origin)).host; } catch {}
-          if (![`127.0.0.1:${boundPort}`, `localhost:${boundPort}`, `[::1]:${boundPort}`].includes(originHost)) {
-            sendJson({ ok: false, error: '跨站请求被拒绝' }, 403);
-            return;
-          }
-        }
-      }
+    const dispatchEndpoints = async (mw, req, res) => {
+      const { url, sendJson, readBody, SECURITY_HEADERS } = mw;
       try {
         // 空 agent token 一律拒绝，防止 MCP 传入空字符串时被当作“管理端/无 token”绕过校验
         if (req.headers['x-agent-token'] === '') {
@@ -7777,11 +7644,24 @@ async function main() {
           const kind = body.kind === 'private' ? 'private' : 'group';
           const id = Number(body.id);
           const message = String(body.message ?? '').trim();
+          // 默认 dry-run：只做校验、绝不真的发。
+          //
+          // 2026-11-08 事故：scripts/test-console.mjs 拿占位群号 123456789 走「真实发送」，
+          // 网关回 result=110「你已被移出该群，请重新加群」。自检脚本往一个不存在的群里
+          // 丢消息，轻则刷一堆错误日志，重则让账号被风险控制盯上。
+          // 所以要求真实发送必须显式传 dryRun:false —— 让"测试"默认是测试。
+          const dryRun = body.dryRun !== false;
           if (!Number.isFinite(id) || id <= 0) { sendJson({ ok: false, error: '目标 id 无效' }, 400); return; }
           if (!message) { sendJson({ ok: false, error: '消息不能为空' }, 400); return; }
           if (SENSITIVE_RE.test(message)) { sendJson({ ok: false, error: '消息含敏感信息，已阻止发送' }, 403); return; }
           if (!allowed(kind, id, cfg)) { sendJson({ ok: false, error: `目标不在白名单内（${kind} ${id}），请先加入白名单` }, 403); return; }
           if (!modeAllowed(`${kind}:${id}`, kind, id, cfg, currentMode)) { sendJson({ ok: false, error: `当前模式（${currentMode}）不允许向 ${kind}:${id} 发送测试消息` }, 403); return; }
+          if (dryRun) {
+            // 校验全过 = 认为通过；不回 message_id，避免调用方误以为真的发出去了。
+            log(`控制台：测试发送 ${kind}:${id} dry-run 通过（未真实发送）`);
+            sendJson({ ok: true, kind, id, dryRun: true });
+            return;
+          }
           try {
             const safeMessage = escapeCqText(redactKnownTokensOnly(message));
             const result = kind === 'private'
@@ -10758,7 +10638,15 @@ async function main() {
           // A reply wait must also include messages received while the model
           // was reading/thinking after its snapshot, before this HTTP request.
           const requestSeq = st.lastUnreadSeq || 0;
-          const baseline = replyWait && (v2ToolEnabled('getUnread') || v2ToolEnabled('getRecent')) ? readThroughSeqV2(st) : requestSeq;
+          // ★2026-11-08：两种用途的基线都按「她还没看过的消息」算。
+          // 旧写法只有 reply 用 readThroughSeq，messages 用的是 lastUnreadSeq ——
+          // 于是等待开始**之前**就已经躺在缓冲里、她根本没看过的消息永远不算到达，
+          // 她要白等满整个 timeoutMs 才知道有人说过话。
+          // 实测：19:54:08 / 19:54:18 两条消息在轮询开始前就到了，她还是等满了 300 秒
+          // （state/tool-calls.jsonl 11:54:22 起，11:59:22 才返回），然后才去读未读。
+          // 关掉历史工具时仍退回 lastUnreadSeq：看不见的缓冲不能靠等待泄漏出去。
+          const historyEnabled = v2ToolEnabled('getUnread') || v2ToolEnabled('getRecent');
+          const baseline = historyEnabled ? readThroughSeqV2(st) : requestSeq;
           const start = Date.now();
           let arrived = false;
           let lastNewAt = 0;
@@ -10786,23 +10674,34 @@ async function main() {
             // Its timestamp must still invalidate the previous quiet window.
             lastNewAt = incomingAt();
             arrived = (st.lastUnreadSeq || 0) > baseline;
-          } else while (Date.now() - start < timeoutMs && !aborted) {
-            let nowSeq = st.lastUnreadSeq || 0;
-            if (nowSeq - baseline >= minNew) {
+          } else {
+            const incomingAt = () => {
+              const value = Number(st.lastIncomingAt);
+              return Number.isFinite(value) && value > 0 ? Math.min(value, Date.now()) : start;
+            };
+            // 等待开始前就已经有她没看过的消息 ⇒ 立刻交回去，不要耗掉等待预算。
+            if ((st.lastUnreadSeq || 0) - baseline >= minNew) {
               arrived = true;
-              lastNewAt = Date.now();
-              // 已等到新消息：继续等到“最后一条新消息之后 quietMs 内不再有新消息”再返回。
-              // 这里不再受原始 timeoutMs 限制，确保对方可能连续发消息时不会抢话。
-              while (Date.now() - lastNewAt < quietMs && Date.now() - start < timeoutMs + maxQuietMs + 5000 && !aborted) {
-                if ((st.lastUnreadSeq || 0) > nowSeq) {
-                  nowSeq = st.lastUnreadSeq || 0;
-                  lastNewAt = Date.now();
-                }
-                await sleep(200);
-              }
-              break;
+              lastNewAt = incomingAt();
             }
-            await sleep(300);
+            while (!aborted && !arrived && Date.now() - start < timeoutMs) {
+              if ((st.lastUnreadSeq || 0) - baseline >= minNew) {
+                arrived = true;
+                lastNewAt = incomingAt();
+                break;
+              }
+              await sleep(300);
+            }
+            // 已等到新消息：继续等到“最后一条新消息之后 quietMs 内不再有新消息”再返回。
+            // 这里不再受原始 timeoutMs 限制，确保对方可能连续发消息时不会抢话。
+            let nowSeq = st.lastUnreadSeq || 0;
+            while (arrived && !aborted && Date.now() - lastNewAt < quietMs && Date.now() - start < timeoutMs + maxQuietMs + 5000) {
+              if ((st.lastUnreadSeq || 0) > nowSeq) {
+                nowSeq = st.lastUnreadSeq || 0;
+                lastNewAt = incomingAt();
+              }
+              await sleep(200);
+            }
           }
           const waitedMs = Date.now() - start;
           if (socialV2.conversations.get(canonicalV2Key(key)) !== st ||
@@ -12494,6 +12393,176 @@ public class QQBridgeWin {
         const status = Number(error?.statusCode) || 500;
         sendJson({ ok: false, error: error?.message ?? String(error) }, status);
       }
+    };
+
+    const server = http.createServer(async (req, res) => {
+      let url;
+      try { url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`); }
+      catch {
+        res.writeHead(400, { 'content-type': 'application/json; charset=utf-8', 'Connection': 'close' });
+        res.end(JSON.stringify({ ok: false, error: '无效的请求地址' }));
+        return;
+      }
+      const SECURITY_HEADERS = {
+        'X-Frame-Options': 'DENY',
+        // 不写这条的话 `default-src 'self'` 会把跨端口的 iframe 直接拒掉，
+        // 控制台里就是一块白板 + 浏览器报 Refused to frame。
+        // 只放行本机 3101，不是 `*`；3101 那边同时也收窄成只认 3100。
+        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';",
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+        'Referrer-Policy': 'no-referrer'
+      };
+      const sendJson = (obj, status = 200) => {
+        res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', ...SECURITY_HEADERS });
+        res.end(JSON.stringify(obj, null, 2));
+      };
+      const readBody = () => new Promise((resolve, reject) => {
+        const MAX_BODY_BYTES = 1_000_000;
+        const chunks = [];
+        let total = 0;
+        let settled = false;
+        let bodyTimer = null;
+        const fail = (status, message) => {
+          if (settled) return;
+          settled = true;
+          if (bodyTimer) clearTimeout(bodyTimer);
+          const err = new Error(message);
+          err.statusCode = status;
+          reject(err);
+        };
+        const done = (val) => {
+          if (settled) return;
+          settled = true;
+          if (bodyTimer) clearTimeout(bodyTimer);
+          resolve(val);
+        };
+        // 提前按 Content-Length 拒绝超限请求体
+        const declared = Number(req.headers['content-length']);
+        if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+          fail(413, '请求体过大（超过 1MB）');
+          return;
+        }
+        bodyTimer = setTimeout(() => fail(400, '请求体读取超时'), 30000);
+        req.on('data', (c) => {
+          if (settled) return;
+          const buf = Buffer.isBuffer(c) ? c : Buffer.from(c);
+          total += buf.length;
+          if (total > MAX_BODY_BYTES) {
+            req.pause();
+            fail(413, '请求体过大（超过 1MB）');
+            return;
+          }
+          chunks.push(buf);
+        });
+        req.on('end', () => {
+          if (settled) return;
+          const data = Buffer.concat(chunks).toString('utf8');
+          if (!data.trim()) { done({}); return; }
+          let parsed;
+          try { parsed = JSON.parse(data); } catch { fail(400, '请求体必须是合法 JSON'); return; }
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            fail(400, '请求体必须是 JSON 对象');
+            return;
+          }
+          done(parsed);
+        });
+        // 请求体超限/连接异常时也要结束等待，避免 handler 悬挂
+        req.on('error', () => fail(400, '请求体读取失败'));
+        req.on('aborted', () => fail(400, '请求体读取中断'));
+      });
+      // 浏览器会自动请求 /favicon.ico，且**不带控制台令牌**。若让它落到下面的鉴权分支，
+      // 每次打开控制台都会在 DevTools 里留一条 401 噪音（离线预览 fixture 早已用 204 处理，
+      // 真实服务端此前与自己的 fixture 行为不一致）。这里在任何鉴权之前直接 204 收掉。
+      if (req.method === 'GET' && (url.pathname === '/favicon.ico' || url.pathname === '/apple-touch-icon.png')) {
+        res.writeHead(204, SECURITY_HEADERS);
+        res.end();
+        return;
+      }
+      // Host 头校验（DNS rebinding 硬化）：控制台只监听 127.0.0.1，因此合法请求的 Host
+      // 只可能是 127.0.0.1 / localhost / [::1] 加本端口。攻击者用一个 TTL=0 的域名解析到
+      // 127.0.0.1 时，浏览器会把 evil.com:3100 当作同源，Origin 校验随之失效；卡住 Host
+      // 这一层后，这类请求在进入任何业务分支之前就被拒掉。
+      // 反代/端口转发场景会被一并拒绝——这是有意的（要远程访问请用 SSH 隧道并自行承担）。
+      const hostHeader = String(req.headers.host ?? '');
+      // 用**实际绑定端口**而不是配置值：测试夹具用 consolePort: 0 让系统分配端口，
+      // 配置里那个 0 不是请求里的 Host 端口。请求必然发生在 listen 之后，所以这里拿得到。
+      const boundPort = server.address()?.port ?? port;
+      const allowedHosts = [`127.0.0.1:${boundPort}`, `localhost:${boundPort}`, `[::1]:${boundPort}`];
+      if (!allowedHosts.includes(hostHeader.toLowerCase())) {
+        sendJson({ ok: false, error: `Host 头不被允许（${hostHeader || '缺失'}）：控制台只接受本机回环访问` }, 403);
+        return;
+      }
+      // 控制台鉴权：所有请求需带 x-console-token 或 ?token=
+      // 定长比较：`!==` 会在第一个不同的字符处短路，理论上可被本机进程用响应时延逐字节试探。
+      // 令牌是 192 bit 随机值且只监听回环，所以这是纵深防御而非在野漏洞。
+      const suppliedToken = String(url.searchParams.get('token') ?? req.headers['x-console-token'] ?? '');
+      const tokenMatches = (() => {
+        if (!consoleToken) return false; // 上面已拒绝空令牌；真出现也只许失败关闭，绝不 return true
+        const a = Buffer.from(suppliedToken, 'utf8');
+        const b = Buffer.from(consoleToken, 'utf8');
+        if (a.length !== b.length) return false;
+        return crypto.timingSafeEqual(a, b);
+      })();
+            if (consoleToken && !tokenMatches) {
+        // ⭐ 本机打开控制台页面（GET /）不再弹令牌框（主人 2026-10-19 要求）。
+        //
+        // 为什么安全：能走到这里的请求**已经过了 Host 头校验**（只接受
+        // 127.0.0.1 / localhost / [::1]），必然来自本机浏览器。而能从
+        // state/console-token 读到这串令牌的人本来就有本机文件权限 —— 让他
+        // 再手抄一遍没有任何安全收益，只有"每次开面板都要粘贴一次"的折磨。
+        // 所以：**只有根页面**返回注入了令牌的页面；所有 API 仍然逐个校验令牌
+        //（下面的 401 分支是给 API 用的，保持不变）。
+        if (req.method === 'GET' && url.pathname === '/') {
+          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', ...SECURITY_HEADERS });
+          try {
+            const html = fs.readFileSync(path.join(ROOT, 'public', 'console.html'), 'utf8');
+            res.end(injectConsoleToken(html, consoleToken));
+          } catch {
+            res.end('控制台页面缺失：qq-bridge/public/console.html');
+          }
+          return;
+        }
+        sendJson({ ok: false, error: '未授权：请提供控制台访问令牌' }, 401);
+        return;
+      }
+      // 智能体调用隔离（集中关卡）。
+      //
+      // 背景：控制台令牌是「管理端全权」，会话令牌是「只能动自己这个会话」。MCP 工具进程
+      // 两者都持有，所以「这次请求到底是智能体发的还是管理端发的」必须由请求自己声明。
+      // 各端点用 `if (x-agent-token && !agentTokenOk(...))` 做会话绑定校验，但那个写法在
+      // **头缺失时整条跳过** —— 而头缺失恰恰是模型没传 token 时的自然结果
+      // （旧版 mcp-snowluma-safe.js 用 `...(token ? {...} : {})` 直接省略了这个头）。
+      // 于是「漏传令牌」不是被拒绝，而是**升级成控制台全权**：典型的 confused deputy。
+      //
+      // 现在 MCP 端一律带上 x-agent-call: 1（缺令牌时 x-agent-token 为空串），这里只要看到
+      // 这个声明就要求令牌必须命中某个活跃会话，端点自己漏写校验也不会退回管理端。
+      if (req.headers['x-agent-call'] !== undefined) {
+        if (!isLiveAgentToken(req.headers['x-agent-token'])) {
+          sendJson({ ok: false, error: '未授权：智能体调用必须携带有效的会话令牌' }, 403);
+          return;
+        }
+      }
+      // CSRF 防护：所有写操作必须是 application/json，且（若带 Origin）必须来自本机页面。
+      // 默认未配 consoleToken 时，这可阻止任意网页用表单/跨站请求触发
+      // /api/restart、/api/workspace/reset、/api/role 等破坏性接口。
+      if (req.method !== 'GET') {
+        const ctype = String(req.headers['content-type'] ?? '');
+        if (!ctype.toLowerCase().includes('application/json')) {
+          sendJson({ ok: false, error: '请求必须是 application/json' }, 415);
+          return;
+        }
+        const origin = req.headers['origin'];
+        if (origin) {
+          let originHost = '';
+          try { originHost = new URL(String(origin)).host; } catch {}
+          if (![`127.0.0.1:${boundPort}`, `localhost:${boundPort}`, `[::1]:${boundPort}`].includes(originHost)) {
+            sendJson({ ok: false, error: '跨站请求被拒绝' }, 403);
+            return;
+          }
+        }
+      }
+      await dispatchEndpoints({ url, sendJson, readBody, SECURITY_HEADERS }, req, res);
     });
     server.listen(port, '127.0.0.1', () => {
       log(`本地控制台已启动：http://127.0.0.1:${port}`);
@@ -13475,7 +13544,13 @@ public class QQBridgeWin {
       // closed-agent 仅 owner 私聊、本来就用完整工具面，回退不构成提权。
       const strictPreset = currentMode !== 'closed-agent';
       if (strictPreset && !preset) {
-        const wanted = currentMode === 'reserved2' ? (cfg.socialV2?.agentPreset || cfg.agentPreset) : cfg.agentPreset;
+        // 报错里的 wanted 必须与 modePreset 的口径一致（owner 私聊缺的是 qq-owner-dsh，
+        // 不是 qq-chat-v2），否则误导排查方向。
+        const ownerQQ = String(cfg.ownerQQ ?? '').trim();
+        const isOwnerPrivate = currentMode === 'reserved2' && ownerQQ !== '' && key === `private:${ownerQQ}`;
+        const wanted = isOwnerPrivate
+          ? (cfg.socialV2?.ownerAgentPreset || 'qq-owner-dsh')
+          : (currentMode === 'reserved2' ? (cfg.socialV2?.agentPreset || cfg.agentPreset) : cfg.agentPreset);
         throw new Error(`拒绝为 ${key} 创建会话：模式 ${currentMode} 需要 preset "${wanted}"，但它不在 DSH 可用清单中（${dshPresetIds.join(', ') || '未知'}）。回退到 DSH 默认 preset 会把本地工具暴露给 QQ 群；请先运行 node scripts/setup-dsh.mjs 并重启 DSH。`);
       }
       // 归组：所有 QQ 会话挂到同一个 workspace（幂等创建），GUI 里不再散落「未分组」
@@ -13873,6 +13948,7 @@ public class QQBridgeWin {
         lastActionAt: 0,
         agentToken: crypto.randomBytes(16).toString('hex'),
         bootstrapSent: false,
+        wakeHeaderSent: false,
         wakeTimes: [],
         sendTimes: [],
         stickerCollectTimes: [],
@@ -13952,6 +14028,7 @@ public class QQBridgeWin {
             lastActionAt: Number(val.lastActionAt) || 0,
             agentToken,
             bootstrapSent: !!val.bootstrapSent,
+            wakeHeaderSent: !!val.wakeHeaderSent,
             wakeTimes: Array.isArray(val.wakeTimes) ? val.wakeTimes : [],
             sendTimes: Array.isArray(val.sendTimes) ? val.sendTimes : [],
             stickerCollectTimes: Array.isArray(val.stickerCollectTimes) ? val.stickerCollectTimes : [],
@@ -14070,6 +14147,7 @@ public class QQBridgeWin {
           lastActionAt: st.lastActionAt,
           agentToken: st.agentToken,
           bootstrapSent: st.bootstrapSent,
+          wakeHeaderSent: st.wakeHeaderSent === true,
           wakeTimes: st.wakeTimes.slice(-200),
           sendTimes: st.sendTimes.slice(-500),
           stickerCollectTimes: Array.isArray(st.stickerCollectTimes) ? st.stickerCollectTimes.slice(-500) : [],
@@ -14641,8 +14719,14 @@ public class QQBridgeWin {
       // offline queue may have received more messages since this wake was queued.
       wakeState = getSocialV2State(key);
       wakeToken = wakeState.agentToken;
-      promptText = buildWakePromptV2(key, opts.wakeReason);
+      promptText = buildWakePromptV2(key, opts.wakeReason, { incremental: true });
       wakeSnapshot = buildWakeSnapshotV2(key);
+      // 这一轮若发了固定头（bootstrap 或"固定段还没发过"的回退），就记一笔，
+      // 之后同 session 的唤醒都走增量、不再重发身份块。
+      if (opts.wakeReason === 'bootstrap' || !wakeState.wakeHeaderSent) {
+        wakeState.wakeHeaderSent = true;
+        saveSocialV2State();
+      }
       if (wakeSnapshot) {
         promptText += `\n\n【本次消息快照】\n${JSON.stringify(wakeSnapshot)}\n以上消息已提供，无需重复查询；partial=true 时用 qq_get_unread_messages(afterSeq=readThroughSeq) 继续读取。先处理当前消息；回复前如需确认后续补充，用 qq_wait_for_messages(purpose="reply") 补足短静默，已安静够久会立即返回，不要先长等。收尾只确认你已处理的 readThroughSeq（本地 seq，非 QQ messageId），传给 qq_mark_read 或 qq_set_wake_config 的 throughSeq；新到消息留待处理。`;
       }
@@ -15816,7 +15900,7 @@ public class QQBridgeWin {
     }
   }
 
-  function buildWakePromptV2(key, reason) {
+  function buildWakePromptV2(key, reason, opts = {}) {
     const roleState = readRoleState();
     const roleLine = roleState.role ? `【当前角色】${roleState.role}（完整角色卡请调用 qq_get_prompt 查看）\n\n` : '';
     const identityLine = selfIdentityTextV2();
@@ -15951,7 +16035,23 @@ public class QQBridgeWin {
       log(`[diary] 读日记失败：${error?.message ?? error}`);
     }
         // identityLine 紧跟 roleLine：先知道「我是谁」，再看「我这个会话里的角色是什么」。
-        const base = roleLine + identityLine + tokenLine + nowLine + antiAiLine + proactiveLine + stickerLine + photoLine + diaryLine + replyLine + statusLine + wakeLine + promiseLine + memoryLine + recallBit + participationLine + preSleepLine + autonomyLine;
+        // ── 唤醒消息增量化（2026-11-09，计划书 Phase 4）──────────────────────────
+        // 原来每次唤醒都全量重发这一段（角色/身份/令牌/反AI味/积极性/表情包策略/群图库/
+        // 沉睡前等待/自由时间…），DSH 同一个 session 里 transcript 全保留，等于把几百行
+        // 固定头在同一个会话里堆 N 份 → 主人看到"你是谁/身份块"重复刷屏。根因不是 DSH
+        // 去重失败，是桥接每条唤醒无条件全量重发（见 docs/…/架构改造计划书.md §2.4）。
+        //
+        // ⚠️ bootstrap 永远是"轮换后第一条"，必须带固定段；非 bootstrap 的唤醒/提醒
+        //   才走增量（opts.incremental=true 由 deliverPromptNow / sendWakePromptV2 传入）。
+        //    兜底：incremental 传了但 fixedBase 没发过（比如进程重启后 st 里没记），仍回退全量，
+        //    保证"她不会在没头没尾的状态下醒着"。
+        const useIncremental = opts.incremental === true && reason !== 'bootstrap' && st.wakeHeaderSent;
+        // fixedBase 里是逐字不变的段（角色/身份/令牌/反AI味/积极性/表情包策略/群图库），
+        // 只在新 session 第一条（bootstrap）发一次；其余段（含 autonomyLine 的每轮现算数字）
+        // 拼在 base 这条上、每条唤醒都发。autonomyLine / preSleepLine 虽嵌 cfg 现算数字，
+        // 但文本本身每次一致，这里不把它们当固定段、保持"每轮都带着"的旧行为不变。
+        const fixedBase = roleLine + identityLine + tokenLine + antiAiLine + proactiveLine + stickerLine + photoLine;
+        const base = (useIncremental ? '' : fixedBase) + nowLine + diaryLine + replyLine + statusLine + wakeLine + promiseLine + memoryLine + recallBit + participationLine + preSleepLine + autonomyLine;
     if (reason === 'bootstrap') {
       return `${base}【引导唤醒】你已接入 QQ 会话 ${key}。\n当前是二代仿真模式：你的文本输出不会自动发送到 QQ，所有发言必须通过工具完成。\n请先调用 qq_get_prompt 查看角色、推荐值、可用工具和状态；有待回应的消息先按首回复节奏处理，最后才用 qq_set_wake_config 设置你希望如何被唤醒。`;
     }
@@ -16203,8 +16303,11 @@ public class QQBridgeWin {
     // "她已经开始思考了、状态还是上一轮的" 这种窗口。
     st.turnAutonomous = isAutonomousWakeReason(reason);
     st.turnStartedAt = now;
+    const promptText = buildWakePromptV2(key, reason, { incremental: true });
+    if (reason === 'bootstrap' || !st.wakeHeaderSent) {
+      st.wakeHeaderSent = true;
+    }
     saveSocialV2State();
-    const promptText = buildWakePromptV2(key, reason);
     log(`[reserved2] 唤醒 ${key}（${reason}）`);
     const rollbackWakeTime = () => {
       const idx = st.wakeTimes.lastIndexOf(wakeTime);

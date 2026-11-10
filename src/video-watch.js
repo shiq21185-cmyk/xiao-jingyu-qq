@@ -101,8 +101,16 @@ export function runVideoStoryboard({
     // 但 CLI 会写成 out-1.png / out-2.png…… 于是 `--out` 那个路径根本不存在
     // → 2026-11-02 实测报过「宫格图没生成：ENOENT …qq-video-….png」。
     // 所以这里默认 --max-sheets 1：宁可每格小一点，也要保证一张图能整条讲完。
-    const sheetCap = Number(maxSheets);
-    args.push('--max-sheets', String(Number.isFinite(sheetCap) && sheetCap > 0 ? Math.floor(sheetCap) : 1));
+    // ⚠️ 这里**写死 1**，不接受调用方传更大的值。
+    // 原因：本函数的契约是"读一张图回一张 buffer"（`--out <一个路径>`）。而 0.6 的
+    // `saveStoryboards()` 一旦排出多张，会把文件名改写成 `out-1.png` / `out-2.png`…
+    // ——`out.png` 本身根本不生成 → 读文件 ENOENT → 整次调用报"宫格图没生成"。
+    // 2026-11-07 实测：传 maxSheets:3 排出 3 张，日志三条 `[sheet] …-1/-2/-3.png`
+    // 全绿、`[done]` 也打了，但我们读的那个路径不存在，最后还是失败。
+    // 要多张就得改成读 `sheets[]`，那是另一套返回契约（`qq_watch_screen` 是那样做的，
+    // 这里不是）。所以：宁可让每格小一点，也要保证"一张图讲完"。
+    const sheetCap = Math.min(1, Math.max(1, Math.floor(Number(maxSheets) || 1)));
+    args.push('--max-sheets', String(sheetCap));
     for (const a of extraArgs) args.push(String(a));
 
     const started = Date.now();
@@ -113,7 +121,7 @@ export function runVideoStoryboard({
     const finish = (value) => {
       if (settled) return;
       settled = true;
-      try { if (outPath && fs.existsSync(outPath)) fs.unlinkSync(outPath); } catch { /* 临时文件删不掉不影响结果 */ }
+      cleanupTempSheets(outPath);
       resolve(value);
     };
     try {
@@ -171,10 +179,46 @@ export function runVideoStoryboard({
         return;
       }
       settled = true;
-      try { fs.unlinkSync(outPath); } catch { /* 同上 */ }
+      cleanupTempSheets(outPath);
       resolve({ ok: true, manifest, log: tailLog, buffer, bytes, ms: Date.now() - started });
     });
   });
+}
+
+/**
+ * 删掉这次跑出来的所有临时宫格图。
+ *
+ * 为什么不能只删 `outPath`：0.6 起「张数」不再是输入，是排布的结果。CLI 排出多张时
+ * 会把文件名改写成 `out-1.png` / `out-2.png` ……（`out.png` 本身根本不生成）。
+ * 2026-11-02 那次 auto 按时长排了 22 张，我只 `unlink(out.png)`，于是 **62 个
+ * `qq-video-*.png` 在 %TEMP% 里躺了 5 天**（12MB），我到 11-07 才发现。
+ *
+ * 现在按"同一批"清：以 `outPath` 去掉扩展名的部分为前缀，把目录里所有
+ * `<前缀>.png` 和 `<前缀>-*.png` 一起删。宁可多删几个同批残渣，也别再漏。
+ * 删不掉不算错（文件可能已被系统占用），所以一律 catch。
+ */
+function cleanupTempSheets(outPath) {
+  if (!outPath) return;
+  try {
+    const dir = path.dirname(outPath);
+    const base = path.basename(outPath, path.extname(outPath));
+    // 精确那个 + 所有 `-N` 兄弟 + 同名 `.evidence.json`。
+    // 为什么还要清 evidence：0.6 的 CLI 除了 png 还会写一份
+    // `<base>.evidence.json`（每格起止帧、切点明细，给人核对用）。
+    // 2026-11-07 实测：62 张 png 旁边还躺着 21 份 evidence.json（468KB），
+    // 同样是漏的——只清 png 等于清了一半。
+    // 三种形态都要认（第一版漏了最朴素的那个，实测跑完原地留了两个）：
+    //   <base>.png            单张时就是这个
+    //   <base>-1.png …        排成多张时
+    //   <base>.evidence.json  每格明细
+    const wanted = new Set([`${base}.png`, `${base}.evidence.json`]);
+    for (const name of fs.readdirSync(dir)) {
+      const hit = wanted.has(name) || (name.startsWith(`${base}-`) && name.endsWith('.png'));
+      if (hit) {
+        try { fs.unlinkSync(path.join(dir, name)); } catch { /* 占用中就下次再说 */ }
+      }
+    }
+  } catch { /* 目录读不到就跳过 */ }
 }
 
 function lastLines(text, n) {

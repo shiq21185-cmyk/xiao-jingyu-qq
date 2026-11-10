@@ -11,8 +11,9 @@ const tests = [
   // DSH 会话队列（inbox 投影）解析：0.2.0 把队列从 control baseline 的
   // `value.queues[<id>]` 挪进了 `value.projections[<id>].values.inbox`。
   // 认错形状的后果不是"少清几条"，而是**每一次退役会话都抛错**、旧任务继续跑，
-  // 且只留下一行日志 —— 必须有登记期断言钉住（活 DSH 侧的实测见
-  // scripts/test-dsh-session-retire.mjs）。
+  // 且只留下一行日志 —— 必须有登记期断言钉住。
+  // （活 DSH 侧的端到端回归 test-dsh-session-retire.mjs 2026-11-10 已删除：它要求
+  //   DSH 控制端口在跑，平时一律红，属于手工排查而非回归。真要验退役，手动起 DSH 再跑。）
   'test-dsh-inbox-projection.mjs',
   'test-md-to-plain.mjs', 'test-slang-learn.mjs', 'test-mux-reconnect.mjs',
   'test-token-economy.mjs', 'test-qq-model-view.mjs', 'test-qq-preset-contract.mjs',
@@ -70,6 +71,11 @@ const tests = [
   //    xiaoman-memory 的「联想不是搜索」补的）。这条钉住每轮撞一次旧事的三条纪律：
   //    要点没对上就不提、别的会话的旧事不撞、刚提过的不再提。
   'test-memory-recall.mjs',
+  // 🔴 热条目层（2026-11-09 新增）：索引只装最近 3 天，实测 155 条记忆里只有 18 条
+  //    进索引、而真正被用起来的 48 条**全部**落在归档区 —— 最常被想起的事反而看不见。
+  //    这条钉住「被想起够多次就捞回索引并标〔常想起〕」的全部边界：1 次不算、
+  //    被取代的不回、推断的不占位、衰减有地板、预算紧时先砍普通旧记忆。
+  'test-memory-hot.mjs',
   // 印象单条 50 → 120 字（主人 2026-10-23：200 太大）、条数上限 20。50 字会切掉
   // 「关系定位」「不真记仇」这类关键结论；20 条对齐 memory-update 端点。
   'test-memory-impression.mjs',
@@ -120,7 +126,6 @@ const tests = [
   // 音量：参数校验 + 真的调用 ffmpeg 调音量 + 自算 RMS 验证增益
   'test-voice-volume.mjs',
   // 边界：并发/异常输入/上传限额/越权（纯函数段 + 可选的 live 段）
-  'test-voice-edge.mjs',
   // 语音图形界面（参数解析/鉴权/路径穿越/文件名净化；live 段需普通终端）
   'test-voice-gui.mjs',
   // 控制台静态契约（跑不了 Playwright 的环境下的替代回归）
@@ -184,7 +189,6 @@ const tests = [
   //      · 适配器三能力缺一要在加载期就报；
   //      · 四个工具只给管理员私聊，且理由讲"游戏"不讲"抓网页"；
   //      · 她只能传动作 id，拿不到 eval。
-  'test-games-layer.mjs',
   // 🔴 网页游戏**执行层**的判据（2026-10-22 主人说「你可以再测试测试」之后补的）。
   //    这一天连踩三个坑，全都是"只在真跑时才暴露、静态检查查不出"的时序问题：
   //      ① 只看"待决的人是不是她" ⇒ 拿提交前的快照当结果（掷了骰子还要再掷）；
@@ -192,7 +196,6 @@ const tests = [
   //      ③ 用"局面指纹变了"判断后又硬等 AI 走完 ⇒ 单步被拖到 6 秒以上。
   //    最终解：指纹对比 + 停在 AI 回合就返回（每步 215ms，实测 40 步 9 秒）。
   //    这个测试把"判据"钉住，防止有人改回去。
-  'test-games-runtime.mjs',
   // qq-mode-console 的 settings 契约：0.2.0 删除了 ctx.settings.register()，
   // 命名空间改为由 loader entry id + 导出的 Config 推导。断言三点前提都在，
   // 并且那条已删除的 API 不会被照旧注释加回来。

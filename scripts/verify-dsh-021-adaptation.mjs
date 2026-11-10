@@ -164,7 +164,7 @@ const GUARD_020_NAMES = [
   'subagent_codex', 'subagent_claude_code',
   'spawn_teammate', 'team_task_create', 'team_task_get', 'team_task_list', 'team_task_update',
   'plugin_manager',
-  'schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete',
+  'schedule_create', 'schedule_list', 'schedule_edit', 'schedule_view',
 ];
 // 0.2.1 对账：本机实测 known global tools 里**确实**出现 working_directory
 // （`dsh-base` 默认挂 working-directory + tool-working-directory 两行）。
@@ -241,7 +241,10 @@ const snowlumaEntry = patchDoc.filter((e) => e?.insert).flatMap((e) => e.insert)
 check('mcp-snowluma 带 toolCallTimeoutMs=725000', snowlumaEntry?.config?.toolCallTimeoutMs === 725000);
 // ⚠️ 只要求**本仓库自己的** MCP 指向本仓库：`mcp-phone` 等外部工具本来就在别的目录
 //    （本机装在 `…/AI work/手机工具/`），要求"全部都在本仓库"会把它判成红。
-const OURS_MCP_IDS = ['mcp-snowluma', 'mcp-snowluma-host', 'mcp-web-search-safe', 'mcp-games'];
+// ⚠️ 2026-11-08：`mcp-games` 从这里摘掉。setup-dsh.mjs 的 MANAGED_MCP_IDS 在
+//    2026-11-06 已按主人要求停止挂载它（`src/mcp-games.js` 仍在仓库里，只是不进 profile），
+//    这里若还要求它存在，就等于**断言一个主人明确不要的东西必须挂着** —— 必然假红。
+const OURS_MCP_IDS = ['mcp-snowluma', 'mcp-snowluma-host', 'mcp-web-search-safe'];
 check('本仓库的 MCP 路径指向本仓库', OURS_MCP_IDS.every((id) => {
   const e = patchDoc.filter((x) => x?.insert).flatMap((x) => x.insert).find((y) => y.id === id);
   return e && String(e.config?.args?.[0] ?? '').includes('qq-bridge');
@@ -296,7 +299,11 @@ const lockJson = JSON.parse(fs.readFileSync(path.join(ROOT, 'package-lock.json')
 const pluginPkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'plugins/qq-mode-console/package.json'), 'utf8'));
 check('package-lock.json 顶层 version 与 package.json 一致', lockJson.version === pkgJson.version, `lock=${lockJson.version} pkg=${pkgJson.version}`);
 check('package-lock.json packages[""] version 与 package.json 一致', lockJson.packages?.['']?.version === pkgJson.version, `lock=${lockJson.packages?.['']?.version}`);
-check('qq-mode-console 插件版本与主包一致', pluginPkg.version === pkgJson.version, `plugin=${pluginPkg.version}`);
+// ⚠️ 2026-11-09：主人明确要求「只改 qq 桥接自己的版本号，别动我的插件」——
+//    `plugins/qq-mode-console` 与 `plugins/qq-agent-presets` 是独立分发的 DSH 插件包，
+//    有自己的 npm 版本线（npm 上是 1.1.2），跟桥接主包强绑同一个号是错的。
+//    这里改成只要求它是**合法 semver**（防止漏写成空串/占位符），不再要求字面相等。
+check('qq-mode-console 插件版本是合法 semver', /^\d+\.\d+\.\d+/.test(pluginPkg.version), `plugin=${pluginPkg.version}`);
 for (const f of ['src/mcp-snowluma-safe.js', 'src/mcp-host-server.js', 'src/mcp-web-search-safe.js']) {
   const m = /new McpServer\(\{[^}]*version:\s*'([^']+)'/.exec(fs.readFileSync(path.join(ROOT, f), 'utf8'));
   check(`${f} 的 MCP serverInfo.version 与主包一致`, m?.[1] === pkgJson.version, `声明=${m?.[1]} 主包=${pkgJson.version}`);

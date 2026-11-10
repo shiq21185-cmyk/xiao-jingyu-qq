@@ -26,7 +26,32 @@ import * as timeContext from '../src/time-context.js';
 import { unwrap, createTurnCollector } from '../src/dsh-client.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
+
+/**
+ * 清掉以前跑剩下的临时目录。
+ *
+ * 为什么需要：`close()` 里确实有 `rmSync(temp)`，但**只有真的调了 close 才有用**——
+ * 测试中途抛异常、`process.exit()`、或者某个用例忘了收尾，目录就留在 `%TEMP%` 里。
+ * 2026-11-07 实测攒了 **116 个**（173KB）：不涨盘，但 `ls %TEMP%` 会被它们淹掉。
+ *
+ * 只删**超过 1 小时**的：同一轮 audit 里可能有多个用例在跑，别人的目录还在用。
+ */
+function sweepStaleHarnessDirs(maxAgeMs = 3600_000) {
+  let entries;
+  try { entries = fs.readdirSync(os.tmpdir(), { withFileTypes: true }); } catch { return; }
+  const cutoff = Date.now() - maxAgeMs;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith('qq-audit-bridge-')) continue;
+    const dir = path.join(os.tmpdir(), entry.name);
+    try {
+      if (fs.statSync(dir).mtimeMs > cutoff) continue;
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch { /* 被别人占着就下次再说 */ }
+  }
+}
+
 export async function bridgeHarness({ config = {}, savedState, globals = {} } = {}) {
+  sweepStaleHarnessDirs();
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-audit-bridge-'));
   fs.mkdirSync(path.join(temp, 'src'));
   fs.mkdirSync(path.join(temp, 'state'));
