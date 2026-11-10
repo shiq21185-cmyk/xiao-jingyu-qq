@@ -239,7 +239,8 @@
       "defaultVolume": 1,
       "loudness": "normal",
       "ffmpegPath": "",
-      "autoReadback": true
+      "autoReadback": true,
+      "maxTextChars": 80
     },
     "asr": {
       "enabled": false,
